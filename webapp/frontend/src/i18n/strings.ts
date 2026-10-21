@@ -236,8 +236,7 @@ function initialLang(): Lang {
     const supported = SUPPORTED_LANGS.find((lang) => lang === saved);
     if (supported) return supported;
   }
-  return typeof navigator !== "undefined" && navigator.language?.toLowerCase().startsWith("en")
-    ? "en" : "es";
+  return "es";
 }
 
 let current: Lang = initialLang();

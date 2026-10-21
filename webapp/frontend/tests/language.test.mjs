@@ -39,13 +39,13 @@ test("restores the cookie instead of the browser language after reloading", asyn
   assert.equal((await loadLanguage()).getLang(), "en");
 });
 
-test("falls back to the browser language for missing or unsupported cookies", async (t) => {
+test("defaults to Spanish for missing or unsupported cookies even in an English browser", async (t) => {
   browser(t, "", "en-GB");
-  assert.equal((await loadLanguage()).getLang(), "en");
+  assert.equal((await loadLanguage()).getLang(), "es");
   document.cookie = "mytarik.lang=fr";
-  assert.equal((await loadLanguage()).getLang(), "en");
+  assert.equal((await loadLanguage()).getLang(), "es");
   document.cookie = "mytarik.lang=toString";
-  assert.equal((await loadLanguage()).getLang(), "en");
+  assert.equal((await loadLanguage()).getLang(), "es");
 });
 
 test("persists language over local HTTP without a Secure-only cookie", async (t) => {
