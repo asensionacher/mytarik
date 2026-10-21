@@ -40,9 +40,11 @@ services:
     env_file:
       - .env
     volumes:
-      # Bind-mount the local HS dataset so the image doesn't have to embed it.
-      # ingest_hs_codes.py reads data/harmonized-system.csv at /app/data/...
-      - ./tariffai/data:/app/data:ro
+      # Bind-mount the local HS dataset so ingest can write its cache back.
+      # The CSV is .gitignore'd, so on a fresh clone the host dir is empty
+      # and the script downloads into it on first run (writable). Subsequent
+      # runs reuse the cached CSV from the host.
+      - ./tariffai/data:/app/data
     entrypoint: ["python", "-m", "scripts.ingest_hs_codes"]
     restart: "no"
 
