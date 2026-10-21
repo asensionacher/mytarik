@@ -1,0 +1,32 @@
+# Local dev / build artifacts
+.venv/
+venv/
+env/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# Node
+node_modules/
+dist/
+build/
+**/.vite/
+**/.cache/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Qdrant
+qdrant_data/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.log
+
+# Ingest caches (auto-downloaded by tariffai/scripts/ingest_hs_codes.py)
+tariffai/data/harmonized-system.csv
+tariffai/data/hs_processed.json

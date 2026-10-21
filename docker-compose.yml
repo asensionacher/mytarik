@@ -1,0 +1,109 @@
+name: mytarik
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: mytarik-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      # La imagen de Qdrant NO incluye wget/curl/nc; sólo bash con /dev/tcp disponible.
+      # Chequeamos que el puerto REST 6333 está abierto y responde a un GET /healthz.
+      test:
+        - "CMD-SHELL"
+        - >-
+          bash -c '
+          exec 3<>/dev/tcp/127.0.0.1/6333 && printf "GET /healthz HTTP/1.0\r\nHost: x\r\n\r\n" >&3 && head -n 1 <&3 | grep -q "200" && exec 3<&- || exit 1
+          '
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  tariffai-init:
+    build:
+      context: ./tariffai
+      dockerfile: Dockerfile
+    container_name: mytarik-tariffai-init
+    profiles: ["init"]
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    environment:
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: "6333"
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-intfloat/multilingual-e5-small}
+    env_file:
+      - .env
+    entrypoint: ["python", "-m", "scripts.ingest_hs_codes"]
+    restart: "no"
+
+  tariffai-api:
+    build:
+      context: ./tariffai
+      dockerfile: Dockerfile
+    container_name: mytarik-tariffai-api
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    environment:
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: "6333"
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-intfloat/multilingual-e5-small}
+      LLM_PROVIDER: ${LLM_PROVIDER:-minimax}
+      LLM_MODEL: ${LLM_MODEL:-gemini-3.8-flash}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+      MINIMAX_BASE_URL: ${MINIMAX_BASE_URL:-https://api.minimax.io/anthropic}
+      MINIMAX_DEFAULT_MODEL: ${MINIMAX_DEFAULT_MODEL:-MiniMax-M3.1-Flash}
+      TOP_K_CANDIDATES: "${TOP_K_CANDIDATES:-10}"
+      CONFIDENCE_THRESHOLD: "${CONFIDENCE_THRESHOLD:-0.7}"
+    env_file:
+      - .env
+    ports:
+      - "8004:8004"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health').read()"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  webapp-backend:
+    build:
+      context: ./webapp/backend
+      dockerfile: Dockerfile
+    container_name: mytarik-webapp-backend
+    depends_on:
+      tariffai-api:
+        condition: service_healthy
+    environment:
+      TARIFFAI_URL: http://tariffai-api:8004
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+    ports:
+      - "8005:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health').read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+  webapp-frontend:
+    build:
+      context: ./webapp/frontend
+      dockerfile: Dockerfile
+    container_name: mytarik-webapp-frontend
+    depends_on:
+      - webapp-backend
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+
+volumes:
+  qdrant_data:
