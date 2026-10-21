@@ -60,11 +60,6 @@ services:
       QDRANT_HOST: qdrant
       QDRANT_PORT: "6333"
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-intfloat/multilingual-e5-small}
-      LLM_PROVIDER: ${LLM_PROVIDER:-minimax}
-      LLM_MODEL: ${LLM_MODEL:-gemini-3.8-flash}
-      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
-      MINIMAX_BASE_URL: ${MINIMAX_BASE_URL:-https://api.minimax.io/anthropic}
-      MINIMAX_DEFAULT_MODEL: ${MINIMAX_DEFAULT_MODEL:-MiniMax-M3.1-Flash}
       TOP_K_CANDIDATES: "${TOP_K_CANDIDATES:-10}"
       CONFIDENCE_THRESHOLD: "${CONFIDENCE_THRESHOLD:-0.7}"
     env_file:

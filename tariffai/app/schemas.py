@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal
 
 
@@ -60,13 +60,14 @@ class ClassificationResult(BaseModel):
     prompt_tokens: int = Field(default=0, ge=0, description="Tokens del prompt")
     output_tokens: int = Field(default=0, ge=0, description="Tokens generados por el modelo")
     total_tokens: int = Field(default=0, ge=0, description="Total de tokens consumidos (prompt + output)")
-    # Razonamiento interno del modelo (cuando el proveedor lo expone, p.ej. MiniMax
-    # en modo thinking). Útil para auditar clasificación. None si no disponible.
+    # None when the deployment does not expose internal reasoning.
     thinking: str | None = Field(default=None, description="Razonamiento interno del modelo (modo thinking)")
 
 
 class ClassifyRequest(BaseModel):
     """API request to classify a cargo description."""
+    model_config = ConfigDict(extra="forbid")
+
     description: str = Field(
         ...,
         min_length=3,
@@ -77,35 +78,13 @@ class ClassifyRequest(BaseModel):
             "20 pallets of ceramic floor tiles 30x30cm glazed",
         ]
     )
-    provider: str | None = Field(
-        default=None,
-        description=(
-            "Proveedor LLM a usar: 'gemini' o 'minimax'. "
-            "Si se omite, se usa LLM_PROVIDER del entorno."
-        ),
-        examples=["gemini", "minimax"],
-    )
-    model: str | None = Field(
-        default=None,
-        description=(
-            "Modelo concreto del proveedor (p.ej. 'gemini-2.0-flash', 'MiniMax-M3.1-Flash'). "
-            "Si se omite, se usa el default del proveedor."
-        ),
-        examples=["gemini-2.0-flash", "gemini-2.5-pro", "MiniMax-M3.1-Flash"],
-    )
 
 
 class BatchClassifyRequest(BaseModel):
     """API request to classify multiple cargo descriptions."""
+    model_config = ConfigDict(extra="forbid")
+
     descriptions: list[str] = Field(..., min_length=1, max_length=50)
-    provider: str | None = Field(
-        default=None,
-        description="Proveedor LLM ('gemini' o 'minimax').",
-    )
-    model: str | None = Field(
-        default=None,
-        description="Modelo concreto del proveedor; aplica a todos los items del batch.",
-    )
 
 
 class ClassifyResponse(BaseModel):

@@ -7,7 +7,7 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-009688?logo=fastapi&logoColor=white)
 ![LangGraph](https://img.shields.io/badge/LangGraph-Agent_Pipeline-orange)
 ![Qdrant](https://img.shields.io/badge/Qdrant-Vector_DB-red?logo=qdrant)
-![Gemini](https://img.shields.io/badge/Google_Gemini-2.0_Flash-4285F4?logo=google&logoColor=white)
+![Azure Foundry](https://img.shields.io/badge/Azure_Foundry-MAI--Thinking--1-0078D4)
 
 ---
 
@@ -45,7 +45,7 @@ Instead of naive chunk-and-embed, TariffAI uses a **staged retrieval + reasoning
 │                 │                                                │
 │                 ▼                                                │
 │  ┌──────────────────────────────────┐                           │
-│  │ Stage 3: LLM Classification     │  ◄── 1 Gemini call, ~1s   │
+│  │ Stage 3: LLM Classification     │  ◄── 1 Foundry call      │
 │  │ Selects best code from Top-5    │                            │
 │  │ Generates reasoning chain:      │                            │
 │  │ Section → Chapter → Heading     │                            │
@@ -96,7 +96,9 @@ tariffai/
 │   ├── schemas.py                # All Pydantic models (request/response/state)
 │   ├── cargo_preprocessor.py     # Stage 1: Regex noise stripping (No LLM)
 │   ├── hs_retriever.py           # Stage 2: Qdrant + BM25 hybrid search (No LLM)
-│   ├── llm_classifier.py         # Stage 3: Gemini classification (1 LLM call)
+│   ├── llm_classifier.py         # Stage 3: Azure Foundry classification (1 LLM call)
+│   ├── llm_provider.py           # MAI-Thinking-1 via managed identity
+│   ├── translation.py            # Azure Translator Text Translation
 │   ├── graph.py                  # LangGraph state machine orchestrator
 │   └── main.py                   # FastAPI endpoints
 ├── scripts/
@@ -118,7 +120,9 @@ tariffai/
 ### Prerequisites
 - Python 3.11+
 - Docker (for Qdrant)
-- Google Gemini API key ([get one here](https://aistudio.google.com/apikey))
+- An Azure host with a system-assigned managed identity accessible to the API
+- Azure Foundry deployment `MAI-Thinking-1` and Azure Translator Text Translation
+- Identity roles: **Azure AI User** on the Foundry project and **Cognitive Services User** on the Translator resource
 
 ### 1. Clone & Setup
 
@@ -138,8 +142,21 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Edit .env and add your GOOGLE_API_KEY
+# Endpoints and deployment are preconfigured; no API keys are needed.
 ```
+
+The only required settings are `AZURE_AI_PROJECT_ENDPOINT`,
+`AZURE_AI_MODEL_DEPLOYMENT`, and `AZURE_TRANSLATOR_ENDPOINT`. The supplied values
+use project `proj-default`, deployment `MAI-Thinking-1`, and the custom Translator
+endpoint on `Tarikmytarik`.
+
+Authentication uses `ManagedIdentityCredential` exclusively, without API keys or
+local Azure CLI credentials. Run the API on Azure with the system-assigned
+identity enabled and its identity endpoint accessible from the container; plain
+local Docker cannot authenticate. Model/provider overrides are not supported in
+single or batch requests. Query translation uses Azure Translator with automatic
+source-language detection and English as the target. Translation failures surface
+as classification errors, with no fallback to another service or untranslated text.
 
 ### 3. Start Qdrant
 
@@ -277,11 +294,11 @@ This is more robust than raw score normalization because it doesn't depend on sc
 
 ### Stage 3: LLM Classifier (`llm_classifier.py`)
 
-One structured Gemini call with:
+One Azure Foundry chat completion using the server-configured `MAI-Thinking-1` deployment:
 - **Input:** Cleaned cargo text + Top-5 candidates with full hierarchy
 - **Output:** JSON with selected code, reasoning chain, confidence, and alternatives
-- **Temperature:** 0.1 (near-deterministic for consistent classification)
-- **Response format:** `application/json` (Gemini structured output)
+- **Authentication:** System-assigned managed identity, without API keys
+- **Response format:** JSON requested by the classification prompt and parsed by the API
 
 ---
 
@@ -301,6 +318,9 @@ One structured Gemini call with:
 ```bash
 # Run Stage 1 unit tests (no external dependencies needed)
 python tests/test_preprocessor.py
+
+# Azure integration contracts and request validation (mocked services)
+python -m pytest tests
 ```
 
 ```
@@ -347,7 +367,8 @@ Week 6:   ComplianceVault           →  Audit trails, RBAC, human override
 | Vector Database | Qdrant | Semantic search over HS code embeddings |
 | Embeddings | intfloat/multilingual-e5-small | 384-dim multilingual embeddings |
 | Keyword Search | rank-bm25 | Sparse term-frequency matching |
-| LLM | Google Gemini 2.0 Flash | Classification reasoning (1 call per request) |
+| LLM | Azure Foundry / MAI-Thinking-1 | Classification reasoning (1 call per request) |
+| Translation | Azure Translator Text Translation | Translate retrieval queries to English |
 | Data Validation | Pydantic v2 | Request/response schema validation |
 
 ---

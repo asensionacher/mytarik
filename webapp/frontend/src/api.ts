@@ -25,19 +25,11 @@ async function jsonOrThrow<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-export interface ClassifyOptions {
-  proveedor?: string;
-  modelo?: string;
-}
-
 export async function uploadInvoice(
   file: File,
-  opts: ClassifyOptions = {},
 ): Promise<InvoiceUploadResponse> {
   const fd = new FormData();
   fd.append("file", file);
-  if (opts.proveedor) fd.append("proveedor", opts.proveedor);
-  if (opts.modelo) fd.append("modelo", opts.modelo);
   const res = await fetch("/api/invoice/upload", {
     method: "POST",
     body: fd,
@@ -47,12 +39,11 @@ export async function uploadInvoice(
 
 export async function classifyRaw(
   text: string,
-  opts: ClassifyOptions = {},
 ): Promise<InvoiceUploadResponse> {
   const res = await fetch("/api/classify/raw", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text, ...opts }),
+    body: JSON.stringify({ text }),
   });
   return jsonOrThrow<InvoiceUploadResponse>(res);
 }

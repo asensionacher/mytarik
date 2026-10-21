@@ -13,18 +13,10 @@ QDRANT_COLLECTION = "hs_codes"
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
 EMBEDDING_DIM = 384  # dimension for multilingual-e5-small
 
-# --- LLM provider ---
-# "gemini" (default legacy) o "minimax". Sobreescribible por request vía ClassifyRequest.provider.
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "minimax").strip().lower()
-
-# --- Gemini ---
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-LLM_MODEL = os.getenv("LLM_MODEL", "gemini-3.8-flash")
-
-# --- MiniMax (Anthropic-compatible) ---
-MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
-MINIMAX_BASE_URL = os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/anthropic")
-MINIMAX_DEFAULT_MODEL = os.getenv("MINIMAX_DEFAULT_MODEL", "MiniMax-M3.1-Flash")
+# --- Azure (system-assigned managed identity; no API keys) ---
+AZURE_AI_PROJECT_ENDPOINT = os.getenv("AZURE_AI_PROJECT_ENDPOINT", "").strip()
+AZURE_AI_MODEL_DEPLOYMENT = os.getenv("AZURE_AI_MODEL_DEPLOYMENT", "MAI-Thinking-1").strip()
+AZURE_TRANSLATOR_ENDPOINT = os.getenv("AZURE_TRANSLATOR_ENDPOINT", "").strip().rstrip("/")
 
 # --- Retrieval ---
 TOP_K_CANDIDATES = int(os.getenv("TOP_K_CANDIDATES", "10"))

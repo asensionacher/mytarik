@@ -22,7 +22,7 @@ Dentro de la red Docker los servicios se llaman por nombre (`tariffai-api`, `web
 ```
 mytarik/
 ├── docker-compose.yml      # ← orquestador único
-├── .env                    # ← crear desde .env.example con GOOGLE_API_KEY
+├── .env                    # ← endpoints Azure y deployment, sin claves
 ├── tariffai/               # API de clasificación HS (sub-módulo ya existente)
 │   ├── Dockerfile          # añadido por este proyecto
 │   ├── ...
@@ -40,7 +40,9 @@ mytarik/
 ## Requisitos
 
 - Docker Engine 24+ con `docker compose` v2
-- Una API key de Google Gemini (`GOOGLE_API_KEY`) → https://aistudio.google.com/apikey
+- Un host Azure con identidad administrada del sistema habilitada y accesible desde `tariffai-api`
+- El deployment `MAI-Thinking-1` en Azure Foundry y Azure Translator habilitado
+- Permisos de la identidad: **Azure AI User** en el proyecto Foundry y **Cognitive Services User** en el recurso Translator
 - ~6 GB de RAM disponible mientras corren los modelos de embeddings
 
 ## Puesta en marcha
@@ -48,9 +50,21 @@ mytarik/
 ### 1) Configurar variables de entorno
 
 ```bash
-cp .env.example .env       # si no existe créalo con GOOGLE_API_KEY=tu-clave
-# editar .env y poner GOOGLE_API_KEY
+cp .env.example .env
 ```
+
+Solo se configuran tres variables: `AZURE_AI_PROJECT_ENDPOINT`,
+`AZURE_AI_MODEL_DEPLOYMENT` y `AZURE_TRANSLATOR_ENDPOINT`. Los ejemplos incluyen
+el proyecto `proj-default`, el deployment `MAI-Thinking-1` y el endpoint de
+Translator facilitados. No se necesitan claves, secretos, tenant ni client ID.
+
+La autenticación usa exclusivamente `ManagedIdentityCredential`: no hay fallback
+a claves ni a `az login`. Docker local fuera de Azure no dispone de esa identidad;
+ejecuta la API en un recurso Azure con identidad administrada y acceso al endpoint
+de identidad desde el contenedor. La clasificación siempre usa Foundry; la UI y
+las APIs JSON ya no aceptan elegir proveedor ni modelo. La traducción al inglés
+usa Azure Translator Text Translation, y un fallo de traducción se devuelve como
+error de clasificación en lugar de continuar con el texto original.
 
 ### 2) Levantar todo (primera vez)
 
@@ -134,6 +148,6 @@ La UI está estructurada para i18n: los textos viven en `webapp/frontend/src/i18
 | `tariffai-init` falla con `Connection refused` a Qdrant            | Asegúrate de que `qdrant` está en estado `healthy` antes de correr el init                                |
 | `docker compose --profile init run --rm tariffai-init` no sale de su bucle | Es la primera vez que baja `intfloat/multilingual-e5-small` (~470 MB). Espera unos minutos; revisa el progreso con `make ingest` y comprueba que la colección llegue a 5 613 puntos con `curl -s localhost:6333/collections/hs_codes` |
 | `python: command not found` al correr la ingest en local            | Tu sistema sólo expone `python3` y `torch==2.2.2` no tiene wheels para 3.14. Usa `make ingest` o crea un venv con Python 3.11/3.12 |
-| Las clasificaciones devuelven `confidence: 0` o `error`            | `GOOGLE_API_KEY` no se inyectó. Revisa `.env` y que el contenedor `tariffai-api` lo vea                    |
+| Las clasificaciones devuelven `error` de autenticación o permisos | Revisa la identidad administrada del host, su acceso desde el contenedor y los roles en Foundry y Translator |
 | Imágenes sin clasificar                                            | La factura es muy ruidosa o el OCR no extrajo texto claro; prueba subiendo el PDF original o limpia la imagen |
 | Builds muy lentos                                                  | Las imágenes de embeddings (`sentence-transformers` + `torch`) pesan ~1.5 GB. Es normal la primera build   |

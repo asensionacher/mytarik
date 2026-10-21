@@ -72,15 +72,10 @@ def classify_endpoint(req: ClassifyRequest):
     - Confidence score
     - Alternative codes (for ambiguous cases)
 
-    Use the optional `provider` ('gemini' | 'minimax') and `model` fields to
-    override the LLM.
+    Uses the server-configured Azure Foundry deployment only.
     """
     try:
-        result = classify_cargo(
-            req.description,
-            model_name=req.model,
-            provider=req.provider,
-        )
+        result = classify_cargo(req.description)
         status = "ambiguous" if result.is_ambiguous else "classified"
         return ClassifyResponse(status=status, result=result)
     except Exception as e:
@@ -93,16 +88,11 @@ def batch_classify_endpoint(req: BatchClassifyRequest):
     """
     Classify multiple cargo descriptions in one request.
     Each description is processed independently through the full pipeline.
-    The optional `provider` and `model` overrides apply to every item in the batch.
     """
     results = []
     for desc in req.descriptions:
         try:
-            result = classify_cargo(
-                desc,
-                model_name=req.model,
-                provider=req.provider,
-            )
+            result = classify_cargo(desc)
             status = "ambiguous" if result.is_ambiguous else "classified"
             results.append(ClassifyResponse(status=status, result=result))
         except Exception as e:

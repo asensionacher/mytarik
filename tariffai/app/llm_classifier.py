@@ -8,14 +8,12 @@ and makes ONE LLM call to:
 3. Output a calibrated confidence score
 4. For ambiguous cases, explain trade-offs between top candidates
 
-Provider-agnostic: el LLM real se elige en runtime (Gemini o MiniMax) vía
-`llm_provider.get_provider()`.
+Classification uses only the server-configured Azure Foundry deployment.
 """
 
 from app.llm_provider import (
     extract_json,
     get_provider,
-    default_model_for,
 )
 from app.config import CONFIDENCE_THRESHOLD
 from app.schemas import (
@@ -93,8 +91,6 @@ def classify_with_llm(
     cleaned_text: str,
     candidates: list[HSCandidate],
     raw_text: str = "",
-    model_name: str | None = None,
-    provider: str | None = None,
 ) -> ClassificationResult:
     """
     Make a single LLM call to classify the cargo description.
@@ -103,16 +99,11 @@ def classify_with_llm(
         cleaned_text: Preprocessed cargo text (from Stage 1)
         candidates: Top-K candidate HS codes (from Stage 2)
         raw_text: Original raw text (for the output record)
-        model_name: Optional override for the LLM model. Falls back to the
-            provider default when None.
-        provider: Optional LLM provider name ('gemini' o 'minimax'). Falls back
-            to LLM_PROVIDER env var.
 
     Returns:
         ClassificationResult with code, reasoning chain and confidence
     """
-    llm = get_provider(provider)
-    model = model_name or default_model_for(llm.name)
+    llm = get_provider()
 
     system = CLASSIFICATION_SYSTEM_PROMPT
     user = CLASSIFICATION_USER_TEMPLATE.format(
@@ -123,8 +114,6 @@ def classify_with_llm(
     response = llm.complete(
         system=system,
         user=user,
-        model=model,
-        max_tokens=4096,
     )
 
     # Parsear JSON, incluso si vino en ```json ... ```

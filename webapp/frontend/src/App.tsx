@@ -14,24 +14,6 @@ import type { HealthResponse, InvoiceUploadResponse } from "./types";
 
 type Tab = "upload" | "paste";
 
-const MODEL_STORAGE_KEY = "mytarik.modelo";
-const PROVIDER_STORAGE_KEY = "mytarik.proveedor";
-
-// Modelos sugeridos por proveedor (el usuario puede escribir cualquier otro).
-const MODELS_BY_PROVIDER: Record<string, readonly string[]> = {
-  minimax: ["MiniMax-M3.1-Flash"],
-  gemini: [
-    "gemini-3.8-flash",
-    "gemini-3.6-flash",
-    "gemini-3.5-flash-lite",
-    "gemini-3.1-flash-lite",
-    "gemini-3.1-pro-preview",
-    "gemini-3-flash-preview",
-  ],
-};
-
-const DEFAULT_PROVIDER = "minimax";
-
 export default function App() {
   const [tab, setTab] = useState<Tab>("upload");
   const [loading, setLoading] = useState(false);
@@ -39,40 +21,6 @@ export default function App() {
   const [warning, setWarning] = useState<string | null>(null);
   const [result, setResult] = useState<InvoiceUploadResponse | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
-
-  // Proveedor LLM seleccionado (default = "minimax").
-  const [proveedor, setProveedorState] = useState<string>(() => {
-    if (typeof window === "undefined") return DEFAULT_PROVIDER;
-    return window.localStorage.getItem(PROVIDER_STORAGE_KEY) ?? DEFAULT_PROVIDER;
-  });
-  // Modelo seleccionado (vacío = usar default del proveedor).
-  const [modelo, setModeloState] = useState<string>(() => {
-    if (typeof window === "undefined") return "";
-    return window.localStorage.getItem(MODEL_STORAGE_KEY) ?? "";
-  });
-
-  // Persistencia + sincronización: si cambia el proveedor y el modelo actual
-  // no pertenece a la lista del nuevo proveedor, lo cambiamos al primero de la lista.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(PROVIDER_STORAGE_KEY, proveedor);
-  }, [proveedor]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (modelo) window.localStorage.setItem(MODEL_STORAGE_KEY, modelo);
-    else window.localStorage.removeItem(MODEL_STORAGE_KEY);
-  }, [modelo]);
-
-  // Si cambia el proveedor y el modelo actual no encaja, lo cambiamos.
-  // (No persistimos el "reset" — solo en memoria para que la próxima carga use el modelo guardado.)
-  const modelosProveedor = MODELS_BY_PROVIDER[proveedor] ?? [];
-  useEffect(() => {
-    if (modelo && modelosProveedor.length && !modelosProveedor.includes(modelo)) {
-      setModeloState("");  // vacío = "usar default del proveedor"
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [proveedor]);
 
   // Re-render when language changes
   const [, setLangVersion] = useState(0);
@@ -95,10 +43,7 @@ export default function App() {
     setResult(null);
     setLoading(true);
     try {
-      const res = await uploadInvoice(file, {
-        proveedor: proveedor || undefined,
-        modelo: modelo || undefined,
-      });
+      const res = await uploadInvoice(file);
       setResult(res);
       if (res.warning) setWarning(res.warning);
     } catch (e) {
@@ -114,10 +59,7 @@ export default function App() {
     setResult(null);
     setLoading(true);
     try {
-      const res = await classifyRaw(text, {
-        proveedor: proveedor || undefined,
-        modelo: modelo || undefined,
-      });
+      const res = await classifyRaw(text);
       setResult(res);
       if (res.warning) setWarning(res.warning);
     } catch (e) {
@@ -126,10 +68,6 @@ export default function App() {
       setLoading(false);
     }
   }
-
-  const selectedModelLabel = modelo
-    ? (dict.model.options[modelo as keyof typeof dict.model.options] ?? modelo)
-    : dict.model.defaultFromEnv;
 
   // Suma de tokens consumidos por toda la factura
   const tokensAgg = useMemo(() => {
@@ -161,21 +99,6 @@ export default function App() {
             <p className="mt-1 text-sm text-slate-500">{dict.appSubtitle}</p>
           </div>
           <div className="flex items-center gap-3">
-            <ProviderPicker
-              value={proveedor}
-              onChange={setProveedorState}
-              label={dict.provider.label}
-              help={dict.provider.help}
-            />
-            <ModelPicker
-              value={modelo}
-              onChange={setModeloState}
-              label={dict.model.label}
-              help={dict.model.help}
-              placeholder={dict.model.defaultFromEnv}
-              suggestions={modelosProveedor}
-              allowedPattern={(id) => id.startsWith("MiniMax-") || id.startsWith("gemini-")}
-            />
             <div
               className={[
                 "flex items-center gap-2 rounded-full px-3 py-1 text-xs",
@@ -205,11 +128,6 @@ export default function App() {
             />
           </div>
         </div>
-        {modelo ? (
-          <div className="mx-auto -mt-1 max-w-5xl px-4 pb-2 text-xs text-slate-400">
-            {dict.model.help}: <span className="font-mono">{selectedModelLabel}</span>
-          </div>
-        ) : null}
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-8">
@@ -310,91 +228,5 @@ function LangSwitcher({ current, onChange }: { current: Lang; onChange: (l: Lang
         </button>
       ))}
     </div>
-  );
-}
-
-function ModelPicker({
-  value,
-  onChange,
-  label,
-  help,
-  placeholder,
-  suggestions,
-  allowedPattern,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  label: string;
-  help: string;
-  placeholder: string;
-  suggestions: readonly string[];
-  // Si el valor escrito no encaja con este patrón, lo rechazamos (UX sanity-check).
-  allowedPattern?: (id: string) => boolean;
-}) {
-  const opts = t().model.options;
-  return (
-    <label className="flex flex-col text-xs text-slate-500">
-      <span className="mb-0.5 font-medium">{label}</span>
-      <input
-        type="text"
-        value={value}
-        list="mytarik-model-suggestions"
-        onChange={(e) => onChange(e.target.value.trim())}
-        onBlur={(e) => {
-          const v = e.target.value.trim();
-          if (allowedPattern && v && !allowedPattern(v)) {
-            // Si el usuario tecleó algo raro (p.ej. un modelo gemini-* estando en minimax), lo limpiamos.
-            onChange("");
-            return;
-          }
-          onChange(v);
-        }}
-        placeholder={placeholder}
-        title={help}
-        spellCheck={false}
-        autoComplete="off"
-        className="w-44 rounded-md border border-slate-300 bg-white px-2 py-1 font-mono text-xs text-slate-800 shadow-sm focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-200"
-      />
-      <datalist id="mytarik-model-suggestions">
-        <option value="">{placeholder}</option>
-        {(suggestions ?? []).map((id) => (
-          <option key={id} value={id}>
-            {opts[id as keyof typeof opts] ?? id}
-          </option>
-        ))}
-      </datalist>
-    </label>
-  );
-}
-
-function ProviderPicker({
-  value,
-  onChange,
-  label,
-  help,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  label: string;
-  help: string;
-}) {
-  const opts = t().provider.options;
-  const keys = Object.keys(opts) as Array<keyof typeof opts>;
-  return (
-    <label className="flex flex-col text-xs text-slate-500">
-      <span className="mb-0.5 font-medium">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        title={help}
-        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 shadow-sm focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-200"
-      >
-        {keys.map((k) => (
-          <option key={k} value={k}>
-            {opts[k]}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }

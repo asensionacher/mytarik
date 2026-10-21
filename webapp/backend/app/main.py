@@ -12,9 +12,9 @@ import logging
 import traceback
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.config import settings
 from app.invoice_parser import parse_invoice
@@ -47,20 +47,14 @@ app.add_middleware(
 # ── Schemas ────────────────────────────────────────────────────────────
 
 class ClassifyBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     description: str = Field(..., min_length=3, description="Descripción de una línea de factura")
-    proveedor: str | None = Field(
-        default=None,
-        description="Proveedor LLM ('gemini' | 'minimax'). Vacío = usa LLM_PROVIDER del .env",
-    )
-    modelo: str | None = Field(
-        default=None,
-        description="Override del modelo LLM (ej. 'gemini-2.5-pro'). Vacío = usa el default del proveedor",
-    )
 
 class RawBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     text: str = Field(..., min_length=1, description="Texto completo de la factura")
-    proveedor: str | None = Field(default=None, description="Proveedor LLM")
-    modelo: str | None = Field(default=None, description="Override del modelo LLM")
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────
@@ -95,13 +89,8 @@ def _serialize(responses) -> list[dict[str, Any]]:
 @app.post("/api/invoice/upload")
 async def upload_invoice(
     file: UploadFile = File(...),
-    proveedor: str | None = Form(default=None),
-    modelo: str | None = Form(default=None),
 ) -> dict[str, Any]:
-    """Recibe una factura, la parsea y clasifica cada línea vía TariffAI.
-
-    Acepta campos multipart opcionales `proveedor` y `modelo` para override del LLM.
-    """
+    """Recibe una factura, la parsea y clasifica cada línea vía TariffAI."""
     raw = await file.read()
     if not raw:
         raise HTTPException(400, "Fichero vacío")
@@ -112,8 +101,6 @@ async def upload_invoice(
         )
 
     filename = file.filename or "invoice"
-    model = (modelo or "").strip() or None
-    provider = (proveedor or "").strip() or None
 
     try:
         parsed = parse_invoice(filename, raw)
@@ -139,7 +126,7 @@ async def upload_invoice(
     try:
         async with make_client() as client:
             classified = await client.classify_batch(
-                parsed.descriptions, model=model, provider=provider,
+                parsed.descriptions,
             )
     except Exception as exc:
         logger.exception("Fallo llamando a TariffAI")
@@ -169,8 +156,6 @@ async def classify_single(body: ClassifyBody) -> dict[str, Any]:
         async with make_client() as client:
             response = await client.classify_one(
                 body.description,
-                model=body.modelo,
-                provider=body.proveedor,
             )
     except Exception as exc:
         logger.exception("Fallo llamando a TariffAI")
@@ -197,8 +182,6 @@ async def classify_raw(body: RawBody) -> dict[str, Any]:
         async with make_client() as client:
             responses = await client.classify_batch(
                 parsed.descriptions,
-                model=body.modelo,
-                provider=body.proveedor,
             )
     except Exception as exc:
         logger.exception("Fallo llamando a TariffAI")

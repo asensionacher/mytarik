@@ -35,8 +35,6 @@ class ClassificationState(TypedDict):
     """State that flows through the classification pipeline."""
     # Inputs
     raw_text: str
-    model_name: str | None  # optional LLM model override
-    provider: str | None    # optional LLM provider override ('gemini' | 'minimax')
 
     # Stage 1 output
     cleaned_text: str
@@ -88,18 +86,13 @@ def classify_node(state: ClassificationState) -> dict:
     """
     cleaned = state["cleaned_text"]
     raw = state["raw_text"]
-    model_name = state.get("model_name")  # optional model override
-    provider = state.get("provider")      # optional provider override
 
     # Deserialize candidates
     candidates = [HSCandidate(**c) for c in state["candidates"]]
 
-    # Classify (provider-agnostic: MiniMax or Gemini)
     result = classify_with_llm(
         cleaned, candidates,
         raw_text=raw,
-        model_name=model_name,
-        provider=provider,
     )
 
     # Calculate total processing time
@@ -186,8 +179,6 @@ def get_classification_graph():
 
 def classify_cargo(
     raw_text: str,
-    model_name: str | None = None,
-    provider: str | None = None,
 ) -> ClassificationResult:
     """
     Main entry point: classify a raw cargo description.
@@ -198,8 +189,6 @@ def classify_cargo(
 
     initial_state: ClassificationState = {
         "raw_text": raw_text,
-        "model_name": model_name,
-        "provider": provider,
         "cleaned_text": "",
         "candidates": [],
         "result": None,

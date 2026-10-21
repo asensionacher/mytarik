@@ -14,30 +14,6 @@ export const dict = {
     appTitle: "MyTarik · Clasificador HS",
     appSubtitle:
       "Sube una factura o pega su texto; te sugerimos códigos HS con la cadena de razonamiento.",
-    model: {
-      label: "Modelo LLM",
-      help: "Modelo concreto del proveedor elegido.",
-      options: {
-        "gemini-3.8-flash": "Gemini 3.8 Flash · recomendado",
-        "gemini-3.6-flash": "Gemini 3.6 Flash",
-        "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
-        "gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",
-        "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview",
-        "gemini-3-flash-preview": "Gemini 3 Flash Preview",
-        "MiniMax-M3.1-Flash": "MiniMax-M3.1-Flash",
-      },
-      placeholder: "(usar default)",
-      defaultFromEnv: "(usar default)",
-      custom: "(personalizado)",
-    },
-    provider: {
-      label: "Proveedor",
-      help: "Servicio LLM que ejecutará el modelo.",
-      options: {
-        minimax: "MiniMax",
-        gemini: "Google Gemini",
-      },
-    },
     detail: {
       thinking: "Razonamiento interno del modelo",
       thinkingEmpty: "El modelo no expuso su razonamiento interno.",
@@ -130,30 +106,6 @@ export const dict = {
     appTitle: "MyTarik · HS classifier",
     appSubtitle:
       "Upload an invoice or paste its text; we suggest HS codes with a reasoning chain.",
-    model: {
-      label: "LLM model",
-      help: "Concrete model for the selected provider.",
-      options: {
-        "gemini-3.8-flash": "Gemini 3.8 Flash · recommended",
-        "gemini-3.6-flash": "Gemini 3.6 Flash",
-        "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
-        "gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",
-        "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview",
-        "gemini-3-flash-preview": "Gemini 3 Flash Preview",
-        "MiniMax-M3.1-Flash": "MiniMax-M3.1-Flash",
-      },
-      placeholder: "(use default)",
-      defaultFromEnv: "(use default)",
-      custom: "(custom)",
-    },
-    provider: {
-      label: "Provider",
-      help: "LLM service that will execute the model.",
-      options: {
-        minimax: "MiniMax",
-        gemini: "Google Gemini",
-      },
-    },
     detail: {
       thinking: "Model's internal reasoning",
       thinkingEmpty: "The model did not expose its internal reasoning.",

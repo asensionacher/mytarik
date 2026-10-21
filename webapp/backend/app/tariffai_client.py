@@ -112,14 +112,8 @@ class TariffAIClient:
     async def classify_one(
         self,
         description: str,
-        model: str | None = None,
-        provider: str | None = None,
     ) -> ClassifyResponse:
         payload: dict = {"description": description}
-        if provider:
-            payload["provider"] = provider
-        if model:
-            payload["model"] = model
         resp = await self.client.post("/classify", json=payload)
         resp.raise_for_status()
         return ClassifyResponse.model_validate(resp.json())
@@ -127,8 +121,6 @@ class TariffAIClient:
     async def classify_batch(
         self,
         descriptions: list[str],
-        model: str | None = None,
-        provider: str | None = None,
     ) -> list[ClassifyResponse]:
         if not descriptions:
             return []
@@ -138,10 +130,6 @@ class TariffAIClient:
         for start in range(0, len(descriptions), page_size):
             chunk = descriptions[start : start + page_size]
             payload: dict = {"descriptions": chunk}
-            if provider:
-                payload["provider"] = provider
-            if model:
-                payload["model"] = model
             resp = await self.client.post("/classify/batch", json=payload)
             resp.raise_for_status()
             for item in resp.json():

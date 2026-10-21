@@ -24,7 +24,6 @@ the indexed English descriptions.
 
 import json
 import logging
-from functools import lru_cache
 from pathlib import Path
 
 from qdrant_client import QdrantClient
@@ -38,6 +37,7 @@ from app.config import (
 )
 from app.schemas import HSCandidate
 from app.cargo_preprocessor import extract_product_keywords
+from app.translation import translate_to_en as _translate_to_en
 
 logger = logging.getLogger(__name__)
 
@@ -47,31 +47,6 @@ _qdrant_client: QdrantClient | None = None
 _embed_model: SentenceTransformer | None = None
 _bm25_index: BM25Okapi | None = None
 _bm25_corpus_map: list[dict] | None = None  # maps BM25 doc index → HS entry
-
-
-# ── Query translation ───────────────────────────────────────────────────
-
-@lru_cache(maxsize=2048)
-def _translate_to_en(text: str) -> str:
-    """
-    Translate `text` to English. No-op (returns input unchanged) if:
-      - Google Translate fails (offline, rate-limited, etc.)
-      - The result is identical to the input (already English)
-      - The input is empty
-
-    Cached with LRU so repeated queries in a session don't hammer the API.
-    """
-    if not text or not text.strip():
-        return text
-    try:
-        from deep_translator import GoogleTranslator
-        translated = GoogleTranslator(source="auto", target="en").translate(text)
-        if translated and translated.strip() and translated.strip() != text.strip():
-            logger.debug("[hs_retriever] translated %r -> %r", text, translated)
-            return translated
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[hs_retriever] translation failed, using original: %s", exc)
-    return text
 
 
 def _get_qdrant() -> QdrantClient:
@@ -262,7 +237,6 @@ def retrieve_candidates(cleaned_text: str, top_k: int | None = None) -> list[HSC
         top_k = TOP_K_CANDIDATES
 
     # Translate once: HS descriptions are in English, queries often aren't.
-    # Fallback inside `_translate_to_en` keeps the original if translation fails.
     query_for_retrieval = _translate_to_en(cleaned_text)
 
     # Run both retrieval strategies
