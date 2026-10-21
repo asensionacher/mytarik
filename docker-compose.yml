@@ -39,6 +39,10 @@ services:
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-intfloat/multilingual-e5-small}
     env_file:
       - .env
+    volumes:
+      # Bind-mount the local HS dataset so the image doesn't have to embed it.
+      # ingest_hs_codes.py reads data/harmonized-system.csv at /app/data/...
+      - ./tariffai/data:/app/data:ro
     entrypoint: ["python", "-m", "scripts.ingest_hs_codes"]
     restart: "no"
 
