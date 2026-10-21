@@ -1,7 +1,7 @@
 import json
 import time
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 import pytest
 import requests
@@ -244,7 +244,7 @@ def test_response_language_flows_through_routes_graph_and_foundry(monkeypatch, l
         assert "hierarchy_descriptions" in call.kwargs["system"]
 
 
-def test_spanish_response_does_not_silently_use_english_hierarchy(monkeypatch):
+def test_missing_localized_hierarchy_is_recovered_from_catalogue(monkeypatch):
     from app import llm_classifier
     from app.schemas import HSCandidate
 
@@ -258,5 +258,113 @@ def test_spanish_response_does_not_silently_use_english_hierarchy(monkeypatch):
         "primary_code": "610510", "primary_description": "Camisas de algodón", "confidence": 0.9,
     }))
     monkeypatch.setattr(llm_classifier, "get_provider", lambda: provider)
-    with pytest.raises(ValueError, match="localized HS descriptions"):
+    descriptions = {"Knitted apparel": "Prendas de punto", "Shirts": "Camisas"}
+    translate = Mock(side_effect=lambda text, language: descriptions[text])
+    monkeypatch.setattr(llm_classifier, "translate_from_en", translate)
+    result = llm_classifier.classify_with_llm("cotton shirts", [candidate], language="es")
+    assert result.primary_code == "610510"
+    assert result.primary_description == "Camisas de algodón"
+    assert result.confidence == 0.9
+    assert result.hierarchy["section"]["description"] == ""
+    assert result.hierarchy["chapter"]["description"] == "Prendas de punto"
+    assert result.hierarchy["heading"]["description"] == "Camisas"
+    assert result.hierarchy["subheading"]["description"] == "Camisas de algodón"
+    assert translate.call_args_list == [call("Knitted apparel", "es"), call("Shirts", "es")]
+    provider.complete.assert_called_once()
+
+
+@pytest.mark.parametrize("level,value", [("section", None), ("chapter", ""), ("heading", "   ")])
+def test_only_missing_localized_field_uses_translator(monkeypatch, caplog, level, value):
+    from app import llm_classifier
+    from app.schemas import HSCandidate
+
+    candidate = HSCandidate(
+        code="610510", description="Cotton shirts", chapter_code="61",
+        chapter_description="Knitted apparel", heading_code="6105", heading_description="Shirts",
+        section="XI", section_description="Textiles and textile articles",
+        retrieval_score=1.0, retrieval_method="hybrid",
+    )
+    localized = {"section": "Materias textiles y sus manufacturas", "chapter": "Prendas de punto", "heading": "Camisas"}
+    expected = localized.copy()
+    if value is None:
+        localized.pop(level)
+    else:
+        localized[level] = value
+    provider = Mock()
+    provider.complete.return_value = llm_provider.LLMResponse(text=json.dumps({
+        "primary_code": "610510", "primary_description": "Camisas de algodón",
+        "confidence": 0.91, "hierarchy_descriptions": localized,
+    }), prompt_tokens=7, output_tokens=11, total_tokens=18)
+    monkeypatch.setattr(llm_classifier, "get_provider", lambda: provider)
+    translate = Mock(return_value=expected[level])
+    monkeypatch.setattr(llm_classifier, "translate_from_en", translate)
+    result = llm_classifier.classify_with_llm("cotton shirts", [candidate], language="es")
+    source = {
+        "section": candidate.section_description,
+        "chapter": candidate.chapter_description,
+        "heading": candidate.heading_description,
+    }
+    translate.assert_called_once_with(source[level], "es")
+    assert {key: result.hierarchy[key]["description"] for key in expected} == expected
+    assert result.primary_code == "610510"
+    assert result.confidence == 0.91
+    assert (result.prompt_tokens, result.output_tokens, result.total_tokens) == (7, 11, 18)
+    assert f"localized {level} description" in caplog.text
+    provider.complete.assert_called_once()
+
+
+def test_missing_primary_description_is_translated_from_catalogue(monkeypatch):
+    from app import llm_classifier
+    from app.schemas import HSCandidate
+
+    candidate = HSCandidate(
+        code="610510", description="Cotton shirts", chapter_code="61",
+        chapter_description="Knitted apparel", heading_code="6105", heading_description="Shirts",
+        retrieval_score=1.0, retrieval_method="hybrid",
+    )
+    provider = Mock()
+    provider.complete.return_value = llm_provider.LLMResponse(text=json.dumps({
+        "primary_code": "610510", "confidence": 0.9,
+        "hierarchy_descriptions": {"chapter": "Prendas de punto", "heading": "Camisas"},
+    }))
+    monkeypatch.setattr(llm_classifier, "get_provider", lambda: provider)
+    translate = Mock(return_value="Camisas de algodón")
+    monkeypatch.setattr(llm_classifier, "translate_from_en", translate)
+    result = llm_classifier.classify_with_llm("cotton shirts", [candidate], language="es")
+    translate.assert_called_once_with("Cotton shirts", "es")
+    assert result.primary_description == result.hierarchy["subheading"]["description"] == "Camisas de algodón"
+    assert result.primary_code == "610510"
+
+
+def test_catalogue_translation_uses_requested_language_and_caches_results(monkeypatch):
+    translation.translate_from_en.cache_clear()
+    client = Mock()
+    client.translate.return_value = [SimpleNamespace(translations=[SimpleNamespace(text="Camisas")])]
+    monkeypatch.setattr(translation, "_get_translator", lambda: client)
+    try:
+        assert translation.translate_from_en("Shirts", "es") == "Camisas"
+        assert translation.translate_from_en("Shirts", "es") == "Camisas"
+        assert translation.translate_from_en("Shirts", "en") == "Shirts"
+        client.translate.assert_called_once_with(body=["Shirts"], to_language=["es"], from_language="en")
+    finally:
+        translation.translate_from_en.cache_clear()
+
+
+def test_catalogue_recovery_does_not_hide_translator_errors(monkeypatch):
+    from app import llm_classifier
+    from app.schemas import HSCandidate
+
+    candidate = HSCandidate(
+        code="610510", description="Cotton shirts", chapter_code="61",
+        chapter_description="Knitted apparel", heading_code="6105", heading_description="Shirts",
+        retrieval_score=1.0, retrieval_method="hybrid",
+    )
+    provider = Mock()
+    provider.complete.return_value = llm_provider.LLMResponse(text=json.dumps({
+        "primary_code": "610510", "primary_description": "Camisas de algodón", "confidence": 0.9,
+    }))
+    monkeypatch.setattr(llm_classifier, "get_provider", lambda: provider)
+    translate = Mock(side_effect=HttpResponseError("Translator permission denied"))
+    monkeypatch.setattr(llm_classifier, "translate_from_en", translate)
+    with pytest.raises(HttpResponseError, match="Translator permission denied"):
         llm_classifier.classify_with_llm("cotton shirts", [candidate], language="es")

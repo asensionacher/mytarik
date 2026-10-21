@@ -149,6 +149,10 @@ los factores clave y las alternativas. Los códigos, los valores numéricos y el
 texto original de la factura no se traducen. El idioma se fija al enviar la
 solicitud, también para los resultados en directo; no se realiza una segunda
 llamada al modelo para traducirlos. Las APIs usan `en` si se omite `language`.
+Si Foundry omite una descripción de la jerarquía o la descripción HS principal,
+se recupera del catálogo y Azure Translator la traduce al idioma solicitado.
+Solo se traducen los campos ausentes, con caché por texto e idioma; se conservan
+los códigos, la confianza y las descripciones que Foundry ya devolvió.
 
 Para reducir la espera, el modo en directo mantiene **hasta tres llamadas de
 clasificación en paralelo por factura** y reutiliza las descripciones idénticas

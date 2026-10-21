@@ -11,6 +11,8 @@ and makes ONE LLM call to:
 Classification uses only the server-configured Azure Foundry deployment.
 """
 
+import logging
+
 from app.llm_provider import (
     extract_json,
     get_provider,
@@ -22,6 +24,10 @@ from app.schemas import (
     ClassificationReasoning,
     ResponseLanguage,
 )
+from app.translation import translate_from_en
+
+
+logger = logging.getLogger(__name__)
 
 
 CLASSIFICATION_SYSTEM_PROMPT = """You are TariffAI, an expert customs tariff classification specialist.
@@ -155,6 +161,9 @@ def classify_with_llm(
     if primary_code:
         for c in candidates:
             if c.code == primary_code:
+                if not isinstance(primary_desc, str) or not primary_desc.strip():
+                    logger.warning("Foundry omitted primary_description; restoring it from the catalogue")
+                    primary_desc = translate_from_en(c.description, language)
                 hierarchy = {
                     "section": {"code": c.section, "description": c.section_description},
                     "chapter": {"code": c.chapter_code, "description": c.chapter_description},
@@ -163,13 +172,15 @@ def classify_with_llm(
                 }
                 if language != "en":
                     localized = result_data.get("hierarchy_descriptions")
-                    if not isinstance(localized, dict) or not isinstance(primary_desc, str) or not primary_desc.strip():
-                        raise ValueError("Foundry omitted localized HS descriptions")
                     for level in ("section", "chapter", "heading"):
                         if hierarchy[level]["description"]:
-                            description = localized.get(level)
+                            description = localized.get(level) if isinstance(localized, dict) else None
                             if not isinstance(description, str) or not description.strip():
-                                raise ValueError(f"Foundry omitted the localized {level} description")
+                                logger.warning(
+                                    "Foundry omitted the localized %s description; translating the catalogue entry",
+                                    level,
+                                )
+                                description = translate_from_en(hierarchy[level]["description"], language)
                             hierarchy[level]["description"] = description
                     hierarchy["subheading"]["description"] = primary_desc
                 break
