@@ -114,3 +114,4 @@ services:
 
 volumes:
   qdrant_data:
+    name: mytarik_qdrant_data

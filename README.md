@@ -93,10 +93,25 @@ make ingest          # equivalente a: docker compose --profile init run --rm tar
 
 # parar todo
 docker compose down
-
-# parar y borrar también los datos de Qdrant
-docker compose down -v
 ```
+
+### Persistencia de Qdrant y reinicios de la VM
+
+Qdrant guarda sus colecciones en el volumen Docker **`mytarik_qdrant_data`**,
+montado en `/qdrant/storage`. Su nombre es fijo para reutilizar los mismos datos
+incluso si cambia el nombre del proyecto Compose. Los reinicios de la VM, la
+recreación del contenedor y `docker compose down` no borran ese volumen.
+
+La política `restart: unless-stopped` vuelve a arrancar Qdrant cuando arranca
+Docker, siempre que no se haya detenido explícitamente. Docker debe estar
+habilitado para arrancar con la VM (`sudo systemctl enable docker` en sistemas
+con systemd). Si se ha ejecutado `docker compose down`, hay que volver a crear
+los contenedores con `docker compose up -d`.
+
+**No ejecutes `docker compose down -v` ni elimines el volumen** si quieres
+conservar los datos. El directorio de datos de Docker debe estar en un disco
+persistente de la VM, no en el disco temporal de Azure. Esta configuración no
+sustituye las copias de seguridad ni protege frente a la eliminación del disco.
 
 ### Ejecutar la ingest localmente (sin Docker)
 
