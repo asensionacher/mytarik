@@ -35,10 +35,10 @@ def test_upload_cannot_forward_model_selection(monkeypatch):
         data={"modelo": "other", "proveedor": "other"},
     )
     assert response.status_code == 200
-    tariffai.classify_batch.assert_awaited_once_with(["cotton shirts"])
+    tariffai.classify_batch.assert_awaited_once_with(["cotton shirts"], language="en")
 
 
-def test_tariffai_client_sends_only_descriptions_and_preserves_batching():
+def test_tariffai_client_sends_descriptions_and_language_and_preserves_batching():
     requests = []
 
     def handle(request):
@@ -58,9 +58,9 @@ def test_tariffai_client_sends_only_descriptions_and_preserves_batching():
 
     asyncio.run(exercise())
     assert requests == [
-        ("/classify", {"description": "cotton shirts"}),
-        ("/classify/batch", {"descriptions": ["cotton shirts"] * 50}),
-        ("/classify/batch", {"descriptions": ["cotton shirts"]}),
+        ("/classify", {"description": "cotton shirts", "language": "en"}),
+        ("/classify/batch", {"descriptions": ["cotton shirts"] * 50, "language": "en"}),
+        ("/classify/batch", {"descriptions": ["cotton shirts"], "language": "en"}),
     ]
 
 
@@ -253,7 +253,7 @@ def test_progress_deadline_cancels_inflight_requests():
 def test_streaming_routes_send_stages_and_out_of_order_results(monkeypatch, path):
     from app.tariffai_client import ClassifyResponse
 
-    async def classify_progress(descriptions):
+    async def classify_progress(descriptions, language="en"):
         assert descriptions == ["first shirt", "second shirt"]
         yield 1, ClassifyResponse(status="error", error="test result")
         yield 0, ClassifyResponse(status="error", error="test result")
@@ -286,7 +286,7 @@ def test_streaming_routes_send_stages_and_out_of_order_results(monkeypatch, path
 def test_streaming_error_preserves_previous_events(monkeypatch):
     from app.tariffai_client import ClassifyResponse
 
-    async def classify_progress(descriptions):
+    async def classify_progress(descriptions, language="en"):
         yield 0, ClassifyResponse(status="error", error="test result")
         raise TimeoutError()
 
@@ -312,7 +312,7 @@ def test_live_http_stream_delivers_events_before_classification_finishes(monkeyp
         first_result = asyncio.Event()
         finish = asyncio.Event()
 
-        async def classify_progress(descriptions):
+        async def classify_progress(descriptions, language="en"):
             await first_result.wait()
             yield 1, ClassifyResponse(status="error", error="test result")
             await finish.wait()
@@ -406,3 +406,60 @@ def test_progress_reports_line_errors_without_dropping_other_lines():
         assert results[1].status == "classified"
 
     asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("language", ["es", "en"])
+@pytest.mark.parametrize("path,streaming", [
+    ("/api/classify", False),
+    ("/api/classify/raw", False),
+    ("/api/classify/raw", True),
+    ("/api/invoice/upload", False),
+    ("/api/invoice/upload", True),
+])
+def test_response_language_reaches_tariffai_on_every_route(monkeypatch, language, path, streaming):
+    from contextlib import asynccontextmanager
+
+    requests = []
+
+    def handle(request):
+        requests.append(json.loads(request.content))
+        result = {"status": "error", "error": "test response"}
+        return httpx.Response(200, json=[result] if request.url.path.endswith("/batch") else result)
+
+    @asynccontextmanager
+    async def make_client():
+        client = TariffAIClient(base_url="http://tariffai")
+        async with httpx.AsyncClient(
+            base_url=client.base_url, transport=httpx.MockTransport(handle),
+        ) as transport:
+            client._client = transport
+            yield client
+
+    monkeypatch.setattr(main, "make_client", make_client)
+    client = TestClient(main.app)
+    headers = {"accept": "application/x-ndjson"} if streaming else {}
+    if path == "/api/invoice/upload":
+        response = client.post(path, headers=headers, data={"language": language}, files={
+            "file": ("invoice.txt", b"cotton shirts", "text/plain"),
+        })
+    else:
+        field = "description" if path == "/api/classify" else "text"
+        response = client.post(path, headers=headers, json={field: "cotton shirts", "language": language})
+    assert response.status_code == 200
+    assert requests
+    assert all(request["language"] == language for request in requests)
+    if streaming:
+        assert json.loads(response.text.splitlines()[-1])["type"] == "done"
+
+
+@pytest.mark.parametrize("path", ["/api/classify", "/api/classify/raw", "/api/invoice/upload"])
+def test_unsupported_response_language_is_rejected(path):
+    client = TestClient(main.app)
+    if path == "/api/invoice/upload":
+        response = client.post(path, data={"language": "fr"}, files={
+            "file": ("invoice.txt", b"cotton shirts", "text/plain"),
+        })
+    else:
+        field = "description" if path == "/api/classify" else "text"
+        response = client.post(path, json={field: "cotton shirts", "language": "fr"})
+    assert response.status_code == 422

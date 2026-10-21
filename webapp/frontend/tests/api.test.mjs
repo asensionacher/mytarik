@@ -3,13 +3,18 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import ts from "typescript";
 
-const source = await readFile(new URL("../src/api.ts", import.meta.url), "utf8");
-const { outputText } = ts.transpileModule(source, {
-  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-});
-const { ApiError, classifyRaw } = await import(
-  `data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`
-);
+function moduleURL(source) {
+  const { outputText } = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  });
+  return `data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`;
+}
+
+const stringsURL = moduleURL(await readFile(new URL("../src/i18n/strings.ts", import.meta.url), "utf8"));
+const { getLang, setLang } = await import(stringsURL);
+const source = (await readFile(new URL("../src/api.ts", import.meta.url), "utf8"))
+  .replace('from "./i18n/strings"', `from "${stringsURL}"`);
+const { ApiError, classifyRaw, uploadInvoice } = await import(moduleURL(source));
 
 const invoice = { filename: "text", source: "raw", items_count: 0, items: [] };
 const ready = { type: "ready", total: 2, invoice };
@@ -111,5 +116,22 @@ test("rejects duplicate or out-of-range item indices", async (t) => {
       (error) => error instanceof ApiError && error.status === 502,
     );
     t.mock.restoreAll();
+  }
+});
+
+test("sends the selected website language for text and invoice uploads", async (t) => {
+  const original = getLang();
+  t.after(() => setLang(original));
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    requests.push({ url, options });
+    return new Response(JSON.stringify(invoice), { headers: { "content-type": "application/json" } });
+  });
+  for (const language of ["es", "en"]) {
+    setLang(language);
+    await classifyRaw("cotton shirts");
+    await uploadInvoice(new Blob(["cotton shirts"], { type: "text/plain" }));
+    assert.equal(JSON.parse(requests.at(-2).options.body).language, language);
+    assert.equal(requests.at(-1).options.body.get("language"), language);
   }
 });

@@ -25,7 +25,7 @@ from langgraph.graph import StateGraph, START, END
 from app.cargo_preprocessor import preprocess_cargo_text
 from app.hs_retriever import retrieve_candidates
 from app.llm_classifier import classify_with_llm
-from app.schemas import HSCandidate, ClassificationResult
+from app.schemas import HSCandidate, ClassificationResult, ResponseLanguage
 from app.config import CONFIDENCE_THRESHOLD
 
 
@@ -35,6 +35,7 @@ class ClassificationState(TypedDict):
     """State that flows through the classification pipeline."""
     # Inputs
     raw_text: str
+    language: ResponseLanguage
 
     # Stage 1 output
     cleaned_text: str
@@ -93,6 +94,7 @@ def classify_node(state: ClassificationState) -> dict:
     result = classify_with_llm(
         cleaned, candidates,
         raw_text=raw,
+        language=state["language"],
     )
 
     # Calculate total processing time
@@ -179,6 +181,7 @@ def get_classification_graph():
 
 def classify_cargo(
     raw_text: str,
+    language: ResponseLanguage = "en",
 ) -> ClassificationResult:
     """
     Main entry point: classify a raw cargo description.
@@ -189,6 +192,7 @@ def classify_cargo(
 
     initial_state: ClassificationState = {
         "raw_text": raw_text,
+        "language": language,
         "cleaned_text": "",
         "candidates": [],
         "result": None,

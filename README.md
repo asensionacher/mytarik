@@ -141,6 +141,15 @@ transcurrido y el número real de líneas procesadas. Los resultados aparecen en
 cuanto termina cada línea, sin esperar a toda la factura, y mantienen la
 numeración original aunque lleguen desordenados.
 
+El idioma seleccionado en la web se envía en cada solicitud (`language: es|en`).
+Se guarda durante un año en la cookie `mytarik.lang` y se restaura al recargar;
+si no hay una preferencia válida, se utiliza el idioma del navegador.
+Foundry genera en ese idioma las descripciones HS, la jerarquía, las explicaciones,
+los factores clave y las alternativas. Los códigos, los valores numéricos y el
+texto original de la factura no se traducen. El idioma se fija al enviar la
+solicitud, también para los resultados en directo; no se realiza una segunda
+llamada al modelo para traducirlos. Las APIs usan `en` si se omite `language`.
+
 Para reducir la espera, el modo en directo mantiene **hasta tres llamadas de
 clasificación en paralelo por factura** y reutiliza las descripciones idénticas
 dentro de la misma solicitud. No cambia el modelo ni reduce su presupuesto de

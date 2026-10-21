@@ -226,17 +226,33 @@ export type DictShape = typeof dict.es;
 export type Lang = keyof typeof dict;
 export const SUPPORTED_LANGS: Lang[] = ["es", "en"];
 
-let current: Lang =
-  (typeof navigator !== "undefined" &&
-    (navigator.language?.toLowerCase().startsWith("en") ? "en" : "es")) ||
-  "es";
+const LANGUAGE_COOKIE = "mytarik.lang";
+
+function initialLang(): Lang {
+  if (typeof document !== "undefined") {
+    const prefix = `${LANGUAGE_COOKIE}=`;
+    const saved = document.cookie.split(";").map((cookie) => cookie.trim())
+      .find((cookie) => cookie.startsWith(prefix))?.slice(prefix.length);
+    const supported = SUPPORTED_LANGS.find((lang) => lang === saved);
+    if (supported) return supported;
+  }
+  return typeof navigator !== "undefined" && navigator.language?.toLowerCase().startsWith("en")
+    ? "en" : "es";
+}
+
+let current: Lang = initialLang();
 
 export function getLang(): Lang {
   return current;
 }
 
 export function setLang(lang: Lang): void {
-  if (lang in dict) current = lang;
+  if (!SUPPORTED_LANGS.includes(lang)) return;
+  current = lang;
+  if (typeof document !== "undefined") {
+    const secure = typeof location !== "undefined" && location.protocol === "https:" ? "; Secure" : "";
+    document.cookie = `${LANGUAGE_COOKIE}=${lang}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
+  }
 }
 
 export function t() {

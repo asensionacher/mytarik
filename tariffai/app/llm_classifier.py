@@ -20,6 +20,7 @@ from app.schemas import (
     HSCandidate,
     ClassificationResult,
     ClassificationReasoning,
+    ResponseLanguage,
 )
 
 
@@ -31,6 +32,11 @@ Your output MUST be a single JSON object with this exact schema (no extra fields
 {
     "primary_code": "620462",
     "primary_description": "The HS description for the selected code",
+    "hierarchy_descriptions": {
+        "section": "Description of the selected candidate's section",
+        "chapter": "Description of the selected candidate's chapter",
+        "heading": "Description of the selected candidate's heading"
+    },
     "confidence": 0.85,
     "reasoning": {
         "section_reasoning": "Why this section...",
@@ -91,6 +97,7 @@ def classify_with_llm(
     cleaned_text: str,
     candidates: list[HSCandidate],
     raw_text: str = "",
+    language: ResponseLanguage = "en",
 ) -> ClassificationResult:
     """
     Make a single LLM call to classify the cargo description.
@@ -99,13 +106,23 @@ def classify_with_llm(
         cleaned_text: Preprocessed cargo text (from Stage 1)
         candidates: Top-K candidate HS codes (from Stage 2)
         raw_text: Original raw text (for the output record)
+        language: Language for descriptions, reasoning and alternatives
 
     Returns:
         ClassificationResult with code, reasoning chain and confidence
     """
     llm = get_provider()
 
-    system = CLASSIFICATION_SYSTEM_PROMPT
+    language_name = {"es": "Spanish", "en": "English"}[language]
+    system = (
+        f"{CLASSIFICATION_SYSTEM_PROMPT}\n\n"
+        f"Response language: {language_name}. Write ALL natural-language output in {language_name}, "
+        "including primary_description, hierarchy_descriptions, every reasoning field, "
+        "key_factors, alternative descriptions, why_not, trade_off, and any exposed thinking. "
+        "Translate the candidate descriptions faithfully, without changing their tariff meaning. "
+        "Keep empty hierarchy descriptions empty. Do not translate JSON keys or change HS codes, "
+        "numeric values, or the classification decision because of the response language."
+    )
     user = CLASSIFICATION_USER_TEMPLATE.format(
         cleaned_text=cleaned_text,
         candidates_text=_format_candidates(candidates),
@@ -144,6 +161,17 @@ def classify_with_llm(
                     "heading": {"code": c.heading_code, "description": c.heading_description},
                     "subheading": {"code": c.code, "description": c.description},
                 }
+                if language != "en":
+                    localized = result_data.get("hierarchy_descriptions")
+                    if not isinstance(localized, dict) or not isinstance(primary_desc, str) or not primary_desc.strip():
+                        raise ValueError("Foundry omitted localized HS descriptions")
+                    for level in ("section", "chapter", "heading"):
+                        if hierarchy[level]["description"]:
+                            description = localized.get(level)
+                            if not isinstance(description, str) or not description.strip():
+                                raise ValueError(f"Foundry omitted the localized {level} description")
+                            hierarchy[level]["description"] = description
+                    hierarchy["subheading"]["description"] = primary_desc
                 break
 
     confidence = float(result_data.get("confidence", 0.5))

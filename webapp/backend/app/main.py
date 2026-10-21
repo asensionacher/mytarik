@@ -15,7 +15,7 @@ from collections.abc import Callable
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -23,7 +23,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
 from app.invoice_parser import ParsedInvoice, parse_invoice, parse_text
-from app.tariffai_client import TariffAIClient, make_client
+from app.tariffai_client import ResponseLanguage, TariffAIClient, make_client
 
 logging.basicConfig(
     level=settings.log_level.upper(),
@@ -55,11 +55,13 @@ class ClassifyBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     description: str = Field(..., min_length=3, description="Descripción de una línea de factura")
+    language: ResponseLanguage = "en"
 
 class RawBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     text: str = Field(..., min_length=1, description="Texto completo de la factura")
+    language: ResponseLanguage = "en"
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────
@@ -93,6 +95,7 @@ def _serialize(responses) -> list[dict[str, Any]]:
 
 def _progress_response(
     parser: Callable[[], ParsedInvoice], filename: str, source: str | None = None,
+    language: ResponseLanguage = "en",
 ) -> StreamingResponse:
     def event(event_type: str, **data: Any) -> str:
         return json.dumps({"type": event_type, **data}, ensure_ascii=False) + "\n"
@@ -107,12 +110,15 @@ def _progress_response(
                 "pages": parsed.pages, "items_count": 0, "items": [],
             }
             if not total:
-                invoice["warning"] = "No se detectaron descripciones válidas en la factura."
+                invoice["warning"] = (
+                    "No se detectaron descripciones válidas en la factura."
+                    if language == "es" else "No valid product descriptions were found in the invoice."
+                )
             logger.info("Factura extraída: %s líneas; clasificación con hasta 3 llamadas en paralelo", total)
             yield event("ready", invoice=invoice, total=total)
             if total:
                 async with make_client() as client:
-                    results = client.classify_progress(parsed.descriptions)
+                    results = client.classify_progress(parsed.descriptions, language=language)
                     try:
                         completed = 0
                         async for index, response in results:
@@ -149,6 +155,7 @@ def _progress_response(
 async def upload_invoice(
     request: Request,
     file: UploadFile = File(...),
+    language: ResponseLanguage = Form(default="en"),
 ) -> dict[str, Any] | StreamingResponse:
     """Recibe una factura, la parsea y clasifica cada línea vía TariffAI."""
     raw = await file.read()
@@ -163,7 +170,7 @@ async def upload_invoice(
     filename = file.filename or "invoice"
 
     if "application/x-ndjson" in request.headers.get("accept", ""):
-        return _progress_response(lambda: parse_invoice(filename, raw), filename)
+        return _progress_response(lambda: parse_invoice(filename, raw), filename, language=language)
 
     try:
         parsed = parse_invoice(filename, raw)
@@ -183,6 +190,8 @@ async def upload_invoice(
             "warning": (
                 "No se detectaron líneas con descripción de producto. "
                 "Prueba con un PDF con tablas o revisa la calidad de la imagen."
+                if language == "es" else
+                "No product description lines were found. Try a PDF with tables or check the image quality."
             ),
         }
 
@@ -190,6 +199,7 @@ async def upload_invoice(
         async with make_client() as client:
             classified = await client.classify_batch(
                 parsed.descriptions,
+                language=language,
             )
     except (httpx.TimeoutException, TimeoutError) as exc:
         logger.exception("Tiempo de espera agotado clasificando la factura")
@@ -222,6 +232,7 @@ async def classify_single(body: ClassifyBody) -> dict[str, Any]:
         async with make_client() as client:
             response = await client.classify_one(
                 body.description,
+                language=body.language,
             )
     except (httpx.TimeoutException, TimeoutError) as exc:
         logger.exception("Tiempo de espera agotado clasificando la descripción")
@@ -236,7 +247,9 @@ async def classify_single(body: ClassifyBody) -> dict[str, Any]:
 async def classify_raw(body: RawBody, request: Request) -> dict[str, Any] | StreamingResponse:
     """Pega texto plano (una descripción por línea)."""
     if "application/x-ndjson" in request.headers.get("accept", ""):
-        return _progress_response(lambda: parse_text(body.text.encode("utf-8")), "text", source="raw")
+        return _progress_response(
+            lambda: parse_text(body.text.encode("utf-8")), "text", source="raw", language=body.language,
+        )
 
     parsed = parse_text(body.text.encode("utf-8"))
     if not parsed.descriptions:
@@ -244,13 +257,17 @@ async def classify_raw(body: RawBody, request: Request) -> dict[str, Any] | Stre
             "source": "raw",
             "items_count": 0,
             "items": [],
-            "warning": "No se detectaron descripciones válidas en el texto.",
+            "warning": (
+                "No se detectaron descripciones válidas en el texto."
+                if body.language == "es" else "No valid descriptions were found in the text."
+            ),
         }
 
     try:
         async with make_client() as client:
             responses = await client.classify_batch(
                 parsed.descriptions,
+                language=body.language,
             )
     except (httpx.TimeoutException, TimeoutError) as exc:
         logger.exception("Tiempo de espera agotado clasificando el texto")

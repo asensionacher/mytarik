@@ -2,6 +2,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal
 
 
+ResponseLanguage = Literal["es", "en"]
+
+
 class HSCodeEntry(BaseModel):
     """A single HS code entry from the tariff schedule."""
     code: str = Field(..., description="6-digit HS code, e.g. '620462'")
@@ -67,6 +70,7 @@ class ClassificationResult(BaseModel):
 class ClassifyRequest(BaseModel):
     """API request to classify a cargo description."""
     model_config = ConfigDict(extra="forbid")
+    language: ResponseLanguage = Field(default="en", description="Language for generated descriptions and reasoning")
 
     description: str = Field(
         ...,
@@ -83,6 +87,7 @@ class ClassifyRequest(BaseModel):
 class BatchClassifyRequest(BaseModel):
     """API request to classify multiple cargo descriptions."""
     model_config = ConfigDict(extra="forbid")
+    language: ResponseLanguage = Field(default="en", description="Response language for every description")
 
     descriptions: list[str] = Field(..., min_length=1, max_length=50)
 

@@ -185,3 +185,78 @@ def test_classification_routes_use_foundry_and_preserve_result(monkeypatch):
 def test_requests_reject_provider_and_model_overrides(schema, payload, override):
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         schema(**payload, **override)
+
+
+@pytest.mark.parametrize("language,language_name", [("es", "Spanish"), ("en", "English")])
+def test_response_language_flows_through_routes_graph_and_foundry(monkeypatch, language, language_name):
+    from fastapi.testclient import TestClient
+
+    from app import graph, llm_classifier, main
+    from app.schemas import HSCandidate
+
+    candidate = HSCandidate(
+        code="610510", description="Cotton shirts", chapter_code="61",
+        chapter_description="Knitted apparel", heading_code="6105", heading_description="Shirts",
+        section="XI", section_description="Textiles", retrieval_score=1.0, retrieval_method="hybrid",
+    )
+    spanish = language == "es"
+    primary = "Camisas de algodón" if spanish else "Cotton shirts"
+    explanation = "La prenda es de algodón." if spanish else "The garment is made of cotton."
+    descriptions = {
+        "section": "Textiles",
+        "chapter": "Prendas de punto" if spanish else "Knitted apparel",
+        "heading": "Camisas" if spanish else "Shirts",
+    }
+    monkeypatch.setattr(graph, "retrieve_candidates", Mock(return_value=[candidate]))
+    provider = Mock()
+    provider.complete.return_value = llm_provider.LLMResponse(text=json.dumps({
+        "primary_code": "610510", "primary_description": primary, "confidence": 0.95,
+        "hierarchy_descriptions": descriptions,
+        "reasoning": {
+            **{f"{level}_reasoning": explanation for level in ("section", "chapter", "heading", "subheading")},
+            "key_factors": ["algodón" if spanish else "cotton"],
+        },
+        "alternative_codes": [{"code": "610590", "description": primary, "why_not": explanation, "trade_off": explanation}],
+    }), thinking=explanation)
+    monkeypatch.setattr(llm_classifier, "get_provider", lambda: provider)
+    client = TestClient(main.app)
+    for path, payload in [
+        ("/classify", {"description": "camisas de algodón"}),
+        ("/classify/batch", {"descriptions": ["camisas de algodón"]}),
+    ]:
+        response = client.post(path, json={**payload, "language": language})
+        assert response.status_code == 200
+        body = response.json()
+        classification = body[0] if isinstance(body, list) else body
+        assert classification["status"] == "classified"
+        result = classification["result"]
+        assert result["primary_code"] == "610510"
+        assert result["primary_description"] == primary
+        assert result["hierarchy"]["chapter"] == {"code": "61", "description": descriptions["chapter"]}
+        assert result["hierarchy"]["heading"] == {"code": "6105", "description": descriptions["heading"]}
+        assert result["hierarchy"]["subheading"] == {"code": "610510", "description": primary}
+        assert result["reasoning"]["chapter_reasoning"] == explanation
+        assert result["alternative_codes"][0]["trade_off"] == explanation
+        assert result["thinking"] == explanation
+        assert result["input_text"] == "camisas de algodón"
+    for call in provider.complete.call_args_list:
+        assert f"Response language: {language_name}" in call.kwargs["system"]
+        assert "hierarchy_descriptions" in call.kwargs["system"]
+
+
+def test_spanish_response_does_not_silently_use_english_hierarchy(monkeypatch):
+    from app import llm_classifier
+    from app.schemas import HSCandidate
+
+    candidate = HSCandidate(
+        code="610510", description="Cotton shirts", chapter_code="61",
+        chapter_description="Knitted apparel", heading_code="6105",
+        heading_description="Shirts", retrieval_score=1.0, retrieval_method="hybrid",
+    )
+    provider = Mock()
+    provider.complete.return_value = llm_provider.LLMResponse(text=json.dumps({
+        "primary_code": "610510", "primary_description": "Camisas de algodón", "confidence": 0.9,
+    }))
+    monkeypatch.setattr(llm_classifier, "get_provider", lambda: provider)
+    with pytest.raises(ValueError, match="localized HS descriptions"):
+        llm_classifier.classify_with_llm("cotton shirts", [candidate], language="es")

@@ -2,6 +2,7 @@ import type {
   ClassificationEvent, ClassificationProgress, HealthResponse, InvoiceItem,
   InvoiceUploadResponse,
 } from "./types";
+import { getLang } from "./i18n/strings";
 
 export class ApiError extends Error {
   status: number;
@@ -34,6 +35,7 @@ export async function uploadInvoice(
 ): Promise<InvoiceUploadResponse> {
   const fd = new FormData();
   fd.append("file", file);
+  fd.append("language", getLang());
   const res = await fetch("/api/invoice/upload", {
     method: "POST",
     headers: onProgress ? { accept: "application/x-ndjson" } : undefined,
@@ -53,7 +55,7 @@ export async function classifyRaw(
       "content-type": "application/json",
       ...(onProgress ? { accept: "application/x-ndjson" } : {}),
     },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, language: getLang() }),
   });
   if (onProgress) return readProgress(res, onProgress);
   return jsonOrThrow<InvoiceUploadResponse>(res);

@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from pydantic import ValidationError
@@ -22,6 +22,8 @@ from pydantic import ValidationError
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+ResponseLanguage = Literal["es", "en"]
 
 
 # ── Modelos espejo (subset suficiente para nuestro uso) ──────────────────
@@ -115,8 +117,9 @@ class TariffAIClient:
     async def classify_one(
         self,
         description: str,
+        language: ResponseLanguage = "en",
     ) -> ClassifyResponse:
-        payload: dict = {"description": description}
+        payload: dict = {"description": description, "language": language}
         async with asyncio.timeout(self.timeout):
             resp = await self.client.post("/classify", json=payload)
             resp.raise_for_status()
@@ -125,6 +128,7 @@ class TariffAIClient:
     async def classify_batch(
         self,
         descriptions: list[str],
+        language: ResponseLanguage = "en",
     ) -> list[ClassifyResponse]:
         if not descriptions:
             return []
@@ -135,7 +139,7 @@ class TariffAIClient:
         async with asyncio.timeout(self.timeout):
             for start in range(0, len(descriptions), page_size):
                 chunk = descriptions[start : start + page_size]
-                payload: dict = {"descriptions": chunk}
+                payload: dict = {"descriptions": chunk, "language": language}
                 resp = await self.client.post("/classify/batch", json=payload)
                 resp.raise_for_status()
                 for item in resp.json():
@@ -143,7 +147,7 @@ class TariffAIClient:
         return out
 
     async def classify_progress(
-        self, descriptions: list[str],
+        self, descriptions: list[str], language: ResponseLanguage = "en",
     ) -> AsyncIterator[tuple[int, ClassifyResponse]]:
         groups: dict[str, list[int]] = {}
         for index, description in enumerate(descriptions):
@@ -155,7 +159,7 @@ class TariffAIClient:
             entry = next(work, None)
             if entry is not None:
                 description, indices = entry
-                pending[asyncio.create_task(self.classify_one(description))] = indices
+                pending[asyncio.create_task(self.classify_one(description, language=language))] = indices
 
         try:
             async with asyncio.timeout(self.timeout):
