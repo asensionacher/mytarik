@@ -54,18 +54,33 @@ export interface ClassifyResponse {
 }
 
 export interface InvoiceItem {
+  line_number?: number;
   description: string;
   classification: ClassifyResponse;
 }
 
 export interface InvoiceUploadResponse {
   filename: string;
-  source: "pdf" | "text" | "image";
+  source: "pdf" | "text" | "image" | "raw";
   pages?: number;
   items_count: number;
   items: InvoiceItem[];
   warning?: string;
 }
+
+export interface ClassificationProgress {
+  stage: "uploading" | "parsing" | "classifying" | "done" | "error";
+  completed: number;
+  total: number;
+  invoice: InvoiceUploadResponse | null;
+}
+
+export type ClassificationEvent =
+  | { type: "stage"; stage: "parsing" }
+  | { type: "ready"; invoice: InvoiceUploadResponse; total: number }
+  | { type: "item"; index: number; item: InvoiceItem }
+  | { type: "done" }
+  | { type: "error"; status: number; message: string };
 
 export interface HealthResponse {
   service: string;

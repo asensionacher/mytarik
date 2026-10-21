@@ -11,10 +11,13 @@ tipado fuerte en este backend, y expone dos funciones:
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
+from pydantic import ValidationError
 
 from app.config import settings
 
@@ -79,13 +82,13 @@ class TariffAIClient:
 
     def __init__(self, base_url: str | None = None, timeout: float | None = None) -> None:
         self.base_url = (base_url or settings.tariffai_url).rstrip("/")
-        self.timeout = timeout or settings.request_timeout_seconds
+        self.timeout = settings.request_timeout_seconds if timeout is None else timeout
         self._client: httpx.AsyncClient | None = None
 
     async def __aenter__(self) -> "TariffAIClient":
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
-            timeout=self.timeout,
+            timeout=httpx.Timeout(self.timeout, connect=10.0),
         )
         return self
 
@@ -100,12 +103,12 @@ class TariffAIClient:
             # Si se usa fuera de un `async with`, igualmente creamos uno
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
-                timeout=self.timeout,
+                timeout=httpx.Timeout(self.timeout, connect=10.0),
             )
         return self._client
 
     async def health(self) -> dict[str, Any]:
-        resp = await self.client.get("/health")
+        resp = await self.client.get("/health", timeout=3.0)
         resp.raise_for_status()
         return resp.json()
 
@@ -114,9 +117,10 @@ class TariffAIClient:
         description: str,
     ) -> ClassifyResponse:
         payload: dict = {"description": description}
-        resp = await self.client.post("/classify", json=payload)
-        resp.raise_for_status()
-        return ClassifyResponse.model_validate(resp.json())
+        async with asyncio.timeout(self.timeout):
+            resp = await self.client.post("/classify", json=payload)
+            resp.raise_for_status()
+            return ClassifyResponse.model_validate(resp.json())
 
     async def classify_batch(
         self,
@@ -127,14 +131,61 @@ class TariffAIClient:
         # La API acepta un máximo de 50 por request → paginar por si acaso.
         page_size = 50
         out: list[ClassifyResponse] = []
-        for start in range(0, len(descriptions), page_size):
-            chunk = descriptions[start : start + page_size]
-            payload: dict = {"descriptions": chunk}
-            resp = await self.client.post("/classify/batch", json=payload)
-            resp.raise_for_status()
-            for item in resp.json():
-                out.append(ClassifyResponse.model_validate(item))
+        # One deadline for the whole invoice, including every page.
+        async with asyncio.timeout(self.timeout):
+            for start in range(0, len(descriptions), page_size):
+                chunk = descriptions[start : start + page_size]
+                payload: dict = {"descriptions": chunk}
+                resp = await self.client.post("/classify/batch", json=payload)
+                resp.raise_for_status()
+                for item in resp.json():
+                    out.append(ClassifyResponse.model_validate(item))
         return out
+
+    async def classify_progress(
+        self, descriptions: list[str],
+    ) -> AsyncIterator[tuple[int, ClassifyResponse]]:
+        groups: dict[str, list[int]] = {}
+        for index, description in enumerate(descriptions):
+            groups.setdefault(description, []).append(index)
+        work = iter(groups.items())
+        pending: dict[asyncio.Task[ClassifyResponse], list[int]] = {}
+
+        def start_next() -> None:
+            entry = next(work, None)
+            if entry is not None:
+                description, indices = entry
+                pending[asyncio.create_task(self.classify_one(description))] = indices
+
+        try:
+            async with asyncio.timeout(self.timeout):
+                for _ in range(3):
+                    start_next()
+                while pending:
+                    done, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                    for task in done:
+                        indices = pending.pop(task)
+                        try:
+                            response = task.result()
+                        except (httpx.HTTPError, TimeoutError, ValidationError) as exc:
+                            logger.exception("Fallo clasificando la línea %s", indices[0] + 1)
+                            response = ClassifyResponse(
+                                status="error", error=str(exc) or type(exc).__name__,
+                            )
+                        for position, index in enumerate(indices):
+                            line_response = response
+                            if position and response.result is not None:
+                                line_response = response.model_copy(update={
+                                    "result": response.result.model_copy(update={
+                                        "prompt_tokens": 0, "output_tokens": 0, "total_tokens": 0,
+                                    }),
+                                })
+                            yield index, line_response
+                        start_next()
+        finally:
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
 
 
 def make_client() -> TariffAIClient:

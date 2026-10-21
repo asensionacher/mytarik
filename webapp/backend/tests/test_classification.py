@@ -3,6 +3,7 @@ import json
 from unittest.mock import AsyncMock, Mock
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from app import main
@@ -61,3 +62,347 @@ def test_tariffai_client_sends_only_descriptions_and_preserves_batching():
         ("/classify/batch", {"descriptions": ["cotton shirts"] * 50}),
         ("/classify/batch", {"descriptions": ["cotton shirts"]}),
     ]
+
+
+@pytest.mark.parametrize("use_context_manager", [False, True])
+def test_classification_waits_longer_but_health_and_connection_stay_bounded(monkeypatch, use_context_manager):
+    observed = {}
+    original_client = httpx.AsyncClient
+
+    def handle(request):
+        observed[request.url.path] = request.extensions["timeout"]
+        return httpx.Response(200, json={"status": "error", "error": "test response"})
+
+    def make_http_client(**kwargs):
+        return original_client(
+            transport=httpx.MockTransport(handle), trust_env=False, **kwargs,
+        )
+
+    monkeypatch.setattr(httpx, "AsyncClient", make_http_client)
+
+    async def exercise():
+        client = TariffAIClient(base_url="http://tariffai")
+        if use_context_manager:
+            async with client:
+                await client.classify_one("cotton shirts")
+                await client.health()
+        else:
+            try:
+                await client.classify_one("cotton shirts")
+                await client.health()
+            finally:
+                await client.client.aclose()
+
+    asyncio.run(exercise())
+    assert observed["/classify"]["read"] == 600
+    assert observed["/classify"]["connect"] == 10
+    assert observed["/health"]["read"] == observed["/health"]["connect"] == 3
+
+
+def test_batch_deadline_covers_all_pages_without_retrying():
+    calls = []
+
+    async def handle(request):
+        calls.append(request)
+        await asyncio.sleep(0.15)
+        count = len(json.loads(request.content)["descriptions"])
+        return httpx.Response(200, json=[{"status": "error", "error": "test"}] * count)
+
+    async def exercise():
+        client = TariffAIClient(base_url="http://tariffai", timeout=0.25)
+        async with httpx.AsyncClient(
+            base_url=client.base_url, transport=httpx.MockTransport(handle),
+        ) as transport:
+            client._client = transport
+            with pytest.raises(TimeoutError):
+                await client.classify_batch(["cotton shirts"] * 51)
+
+    asyncio.run(exercise())
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("timeout", [httpx.ReadTimeout(""), TimeoutError()])
+@pytest.mark.parametrize("path", ["/api/classify", "/api/classify/raw", "/api/invoice/upload"])
+def test_classification_timeout_returns_explicit_504(monkeypatch, timeout, path):
+    tariffai = Mock()
+    tariffai.classify_one = AsyncMock(side_effect=timeout)
+    tariffai.classify_batch = AsyncMock(side_effect=timeout)
+    context = AsyncMock()
+    context.__aenter__.return_value = tariffai
+    monkeypatch.setattr(main, "make_client", lambda: context)
+    monkeypatch.setattr(main, "parse_invoice", Mock(return_value=Mock(
+        source="text", pages=None, descriptions=["cotton shirts"],
+    )))
+
+    client = TestClient(main.app)
+    if path == "/api/invoice/upload":
+        response = client.post(
+            path, files={"file": ("invoice.txt", b"cotton shirts", "text/plain")},
+        )
+    else:
+        field = "description" if path == "/api/classify" else "text"
+        response = client.post(path, json={field: "cotton shirts"})
+    assert response.status_code == 504
+    assert "tiempo de espera" in response.json()["detail"]
+
+
+def test_progress_is_concurrent_bounded_and_deduplicated():
+    async def exercise():
+        active = 0
+        peak = 0
+        calls = []
+        release_first = asyncio.Event()
+        cancelled = []
+
+        async def handle(request):
+            nonlocal active, peak
+            description = json.loads(request.content)["description"]
+            calls.append(description)
+            active += 1
+            peak = max(peak, active)
+            try:
+                if description == "first":
+                    await release_first.wait()
+                else:
+                    await asyncio.sleep(0)
+                return httpx.Response(200, json={"status": "error", "error": description})
+            except asyncio.CancelledError:
+                cancelled.append(description)
+                raise
+            finally:
+                active -= 1
+
+        client = TariffAIClient(base_url="http://tariffai")
+        async with httpx.AsyncClient(
+            base_url=client.base_url, transport=httpx.MockTransport(handle),
+        ) as transport:
+            client._client = transport
+            results = client.classify_progress(["first", "second", "third", "second", "fourth"])
+            first_index, _ = await anext(results)
+            assert first_index != 0
+            assert peak == 3
+            assert active > 0
+            release_first.set()
+            completed = [(first_index, None)] + [entry async for entry in results]
+        assert sorted(index for index, _ in completed) == [0, 1, 2, 3, 4]
+        assert len(calls) == 4
+        assert calls.count("second") == 1
+        assert peak <= 3
+        assert active == 0
+        assert not cancelled
+
+    asyncio.run(exercise())
+
+
+def test_progress_cancellation_stops_remaining_requests():
+    async def exercise():
+        active = 0
+        started = []
+        gate = asyncio.Event()
+
+        async def handle(request):
+            nonlocal active
+            description = json.loads(request.content)["description"]
+            started.append(description)
+            active += 1
+            try:
+                if description != "fast":
+                    await gate.wait()
+                return httpx.Response(200, json={"status": "error", "error": "test"})
+            finally:
+                active -= 1
+
+        client = TariffAIClient(base_url="http://tariffai")
+        async with httpx.AsyncClient(
+            base_url=client.base_url, transport=httpx.MockTransport(handle),
+        ) as transport:
+            client._client = transport
+            results = client.classify_progress(["fast", "slow", "slower", "not started"])
+            assert (await anext(results))[0] == 0
+            await results.aclose()
+        assert active == 0
+        assert "not started" not in started
+
+    asyncio.run(exercise())
+
+
+def test_progress_deadline_cancels_inflight_requests():
+    async def exercise():
+        cancelled = []
+
+        async def handle(request):
+            try:
+                await asyncio.sleep(10)
+            finally:
+                cancelled.append(request)
+
+        client = TariffAIClient(base_url="http://tariffai", timeout=0.02)
+        async with httpx.AsyncClient(
+            base_url=client.base_url, transport=httpx.MockTransport(handle),
+        ) as transport:
+            client._client = transport
+            results = client.classify_progress(["first", "second"])
+            with pytest.raises(TimeoutError):
+                await anext(results)
+        assert len(cancelled) == 2
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("path", ["/api/classify/raw", "/api/invoice/upload"])
+def test_streaming_routes_send_stages_and_out_of_order_results(monkeypatch, path):
+    from app.tariffai_client import ClassifyResponse
+
+    async def classify_progress(descriptions):
+        assert descriptions == ["first shirt", "second shirt"]
+        yield 1, ClassifyResponse(status="error", error="test result")
+        yield 0, ClassifyResponse(status="error", error="test result")
+
+    tariffai = Mock(classify_progress=classify_progress)
+    context = AsyncMock()
+    context.__aenter__.return_value = tariffai
+    monkeypatch.setattr(main, "make_client", lambda: context)
+    monkeypatch.setattr(main, "parse_invoice", Mock(return_value=Mock(
+        source="text", pages=1, descriptions=["first shirt", "second shirt"],
+    )))
+    client = TestClient(main.app)
+    headers = {"accept": "application/x-ndjson"}
+    if path == "/api/invoice/upload":
+        response = client.post(path, headers=headers, files={
+            "file": ("invoice.txt", b"first shirt\nsecond shirt", "text/plain"),
+        })
+    else:
+        response = client.post(path, headers=headers, json={"text": "first shirt\nsecond shirt"})
+    assert response.status_code == 200
+    assert response.headers["x-accel-buffering"] == "no"
+    events = [json.loads(line) for line in response.text.splitlines()]
+    assert [event["type"] for event in events] == ["stage", "ready", "item", "item", "done"]
+    assert events[0]["stage"] == "parsing"
+    assert events[1]["total"] == 2
+    assert [event["index"] for event in events if event["type"] == "item"] == [1, 0]
+    assert events[2]["item"]["line_number"] == 2
+
+
+def test_streaming_error_preserves_previous_events(monkeypatch):
+    from app.tariffai_client import ClassifyResponse
+
+    async def classify_progress(descriptions):
+        yield 0, ClassifyResponse(status="error", error="test result")
+        raise TimeoutError()
+
+    context = AsyncMock()
+    context.__aenter__.return_value = Mock(classify_progress=classify_progress)
+    monkeypatch.setattr(main, "make_client", lambda: context)
+    response = TestClient(main.app).post(
+        "/api/classify/raw", json={"text": "first shirt\nsecond shirt"},
+        headers={"accept": "application/x-ndjson"},
+    )
+    events = [json.loads(line) for line in response.text.splitlines()]
+    assert [event["type"] for event in events] == ["stage", "ready", "item", "error"]
+    assert events[-1]["status"] == 504
+
+
+def test_live_http_stream_delivers_events_before_classification_finishes(monkeypatch):
+    import socket
+
+    import uvicorn
+    from app.tariffai_client import ClassifyResponse
+
+    async def exercise():
+        first_result = asyncio.Event()
+        finish = asyncio.Event()
+
+        async def classify_progress(descriptions):
+            await first_result.wait()
+            yield 1, ClassifyResponse(status="error", error="test result")
+            await finish.wait()
+            yield 0, ClassifyResponse(status="error", error="test result")
+
+        context = AsyncMock()
+        context.__aenter__.return_value = Mock(classify_progress=classify_progress)
+        monkeypatch.setattr(main, "make_client", lambda: context)
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            port = listener.getsockname()[1]
+            server = uvicorn.Server(uvicorn.Config(
+                main.app, log_level="error", access_log=False, lifespan="off",
+            ))
+            task = asyncio.create_task(server.serve(sockets=[listener]))
+            try:
+                async with asyncio.timeout(5):
+                    while not server.started:
+                        await asyncio.sleep(0.01)
+                    async with httpx.AsyncClient(trust_env=False) as client:
+                        async with client.stream(
+                            "POST", f"http://127.0.0.1:{port}/api/classify/raw",
+                            json={"text": "first shirt\nsecond shirt"},
+                            headers={"accept": "application/x-ndjson"},
+                        ) as response:
+                            lines = response.aiter_lines()
+                            assert json.loads(await anext(lines))["type"] == "stage"
+                            assert json.loads(await anext(lines))["type"] == "ready"
+                            first_result.set()
+                            assert json.loads(await anext(lines))["index"] == 1
+                            assert not finish.is_set()
+                            finish.set()
+                            assert json.loads(await anext(lines))["index"] == 0
+                            assert json.loads(await anext(lines))["type"] == "done"
+            finally:
+                server.should_exit = True
+                await asyncio.wait_for(task, timeout=5)
+
+    asyncio.run(exercise())
+
+
+def test_reused_results_do_not_count_tokens_twice():
+    async def exercise():
+        calls = []
+
+        async def handle(request):
+            calls.append(request)
+            return httpx.Response(200, json={
+                "status": "classified",
+                "result": {
+                    "input_text": "same shirt", "confidence": 0.9,
+                    "prompt_tokens": 10, "output_tokens": 20, "total_tokens": 30,
+                },
+            })
+
+        client = TariffAIClient(base_url="http://tariffai")
+        async with httpx.AsyncClient(
+            base_url=client.base_url, transport=httpx.MockTransport(handle),
+        ) as transport:
+            client._client = transport
+            results = [response async for _, response in client.classify_progress(["same shirt", "same shirt"])]
+        assert len(calls) == 1
+        assert len(results) == 2
+        assert results[0].result.total_tokens == 30
+        assert results[1].result.total_tokens == 0
+        assert results[0].result.input_text == results[1].result.input_text
+
+    asyncio.run(exercise())
+
+
+def test_progress_reports_line_errors_without_dropping_other_lines():
+    async def exercise():
+        async def handle(request):
+            description = json.loads(request.content)["description"]
+            if description == "bad shirt":
+                raise httpx.ReadTimeout("")
+            return httpx.Response(200, json={
+                "status": "classified", "result": {"input_text": description, "confidence": 0.9},
+            })
+
+        client = TariffAIClient(base_url="http://tariffai")
+        async with httpx.AsyncClient(
+            base_url=client.base_url, transport=httpx.MockTransport(handle),
+        ) as transport:
+            client._client = transport
+            results = {index: response async for index, response in client.classify_progress(
+                ["bad shirt", "good shirt"],
+            )}
+        assert results[0].status == "error"
+        assert results[0].error == "ReadTimeout"
+        assert results[1].status == "classified"
+
+    asyncio.run(exercise())

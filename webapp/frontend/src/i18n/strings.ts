@@ -22,6 +22,17 @@ export const dict = {
     tariffaiOk: "conectado",
     tariffaiKo: "no responde",
     tabs: { upload: "Subir factura", paste: "Pegar texto" },
+    progress: {
+      stages: {
+        uploading: "Subiendo factura",
+        parsing: "Extrayendo las descripciones",
+        classifying: "Clasificando con Azure Foundry",
+        done: "Proceso terminado",
+        error: "Proceso interrumpido; se conservan los resultados recibidos",
+      },
+      count: (completed: number, total: number) => `${completed} de ${total} líneas procesadas`,
+      elapsed: (seconds: number) => `${seconds} s transcurridos`,
+    },
     upload: {
       dropHere: "Arrastra una factura aquí",
       orClick: "o haz clic para seleccionar",
@@ -98,6 +109,7 @@ export const dict = {
       tooBig: "El fichero supera el tamaño máximo",
       format: "Formato no soportado",
       noApi: "No se pudo contactar con el backend",
+      timeout: "La clasificación ha superado el tiempo de espera. Prueba con menos líneas.",
       network: "Error de red",
     },
   },
@@ -114,6 +126,17 @@ export const dict = {
     tariffaiOk: "connected",
     tariffaiKo: "unreachable",
     tabs: { upload: "Upload invoice", paste: "Paste text" },
+    progress: {
+      stages: {
+        uploading: "Uploading invoice",
+        parsing: "Extracting descriptions",
+        classifying: "Classifying with Azure Foundry",
+        done: "Processing finished",
+        error: "Processing interrupted; received results are preserved",
+      },
+      count: (completed: number, total: number) => `${completed} of ${total} lines processed`,
+      elapsed: (seconds: number) => `${seconds} s elapsed`,
+    },
     upload: {
       dropHere: "Drop an invoice here",
       orClick: "or click to select",
@@ -190,6 +213,7 @@ export const dict = {
       tooBig: "The file exceeds the maximum size",
       format: "Unsupported format",
       noApi: "Could not reach the backend",
+      timeout: "Classification exceeded the time limit. Try fewer lines.",
       network: "Network error",
     },
   },

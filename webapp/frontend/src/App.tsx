@@ -10,7 +10,7 @@ import {
   t,
   type Lang,
 } from "./i18n/strings";
-import type { HealthResponse, InvoiceUploadResponse } from "./types";
+import type { ClassificationProgress, HealthResponse, InvoiceUploadResponse } from "./types";
 
 type Tab = "upload" | "paste";
 
@@ -21,6 +21,8 @@ export default function App() {
   const [warning, setWarning] = useState<string | null>(null);
   const [result, setResult] = useState<InvoiceUploadResponse | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [progress, setProgress] = useState<ClassificationProgress | null>(null);
+  const [elapsed, setElapsed] = useState(0);
 
   // Re-render when language changes
   const [, setLangVersion] = useState(0);
@@ -37,17 +39,35 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!loading) return;
+    const started = Date.now();
+    const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [loading]);
+
+  function handleProgress(update: ClassificationProgress) {
+    setProgress(update);
+    if (update.invoice) {
+      setResult(update.invoice);
+      setWarning(update.invoice.warning ?? null);
+    }
+  }
+
   async function handleFile(file: File) {
     setError(null);
     setWarning(null);
     setResult(null);
+    setElapsed(0);
+    setProgress({ stage: "uploading", completed: 0, total: 0, invoice: null });
     setLoading(true);
     try {
-      const res = await uploadInvoice(file);
+      const res = await uploadInvoice(file, handleProgress);
       setResult(res);
       if (res.warning) setWarning(res.warning);
     } catch (e) {
       setError(humanizeError(e));
+      setProgress((current) => current ? { ...current, stage: "error" } : null);
     } finally {
       setLoading(false);
     }
@@ -57,13 +77,16 @@ export default function App() {
     setError(null);
     setWarning(null);
     setResult(null);
+    setElapsed(0);
+    setProgress({ stage: "parsing", completed: 0, total: 0, invoice: null });
     setLoading(true);
     try {
-      const res = await classifyRaw(text);
+      const res = await classifyRaw(text, handleProgress);
       setResult(res);
       if (res.warning) setWarning(res.warning);
     } catch (e) {
       setError(humanizeError(e));
+      setProgress((current) => current ? { ...current, stage: "error" } : null);
     } finally {
       setLoading(false);
     }
@@ -156,6 +179,26 @@ export default function App() {
           )}
         </div>
 
+        {progress && (
+          <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div role="status" aria-live="polite">
+                {dict.progress.stages[progress.stage]}
+                {progress.total > 0 ? ` · ${dict.progress.count(progress.completed, progress.total)}` : ""}
+              </div>
+              <span>{dict.progress.elapsed(elapsed)}</span>
+            </div>
+            {progress.total > 0 && (
+              <progress
+                className="mt-2 h-2 w-full accent-blue-600"
+                value={progress.completed}
+                max={progress.total}
+                aria-label={dict.progress.count(progress.completed, progress.total)}
+              />
+            )}
+          </div>
+        )}
+
         {error && (
           <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
@@ -180,7 +223,7 @@ export default function App() {
                   : ""}
               </span>
             </h2>
-            <ResultTable items={result.items} />
+            {(result.items.length > 0 || !loading) && <ResultTable items={result.items} />}
           </section>
         )}
       </main>
@@ -205,6 +248,7 @@ function humanizeError(e: unknown): string {
     const body = e.message.toLowerCase();
     if (e.status === 413 || body.includes("límite")) return dict.errors.tooBig;
     if (e.status === 400 || body.includes("no soportad")) return dict.errors.format;
+    if (e.status === 504) return dict.errors.timeout;
     if (e.status === 502 || body.includes("tariffai")) return dict.errors.noApi;
     if (e.status === 0 || body.includes("failed to fetch")) return dict.errors.network;
     return e.message || dict.errors.submit;

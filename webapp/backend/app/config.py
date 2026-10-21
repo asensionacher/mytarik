@@ -13,7 +13,7 @@ class Settings(BaseModel):
 
     tariffai_url: str = os.getenv("TARIFFAI_URL", "http://tariffai-api:8004").rstrip("/")
     log_level: str = os.getenv("LOG_LEVEL", "info").lower()
-    request_timeout_seconds: float = float(os.getenv("TARIFFAI_TIMEOUT", "60"))
+    request_timeout_seconds: float = float(os.getenv("TARIFFAI_TIMEOUT", "600"))
     max_upload_bytes: int = int(os.getenv("MAX_UPLOAD_BYTES", str(20 * 1024 * 1024)))  # 20 MB
     tesseract_langs: str = os.getenv("TESSERACT_LANGS", "eng")
 

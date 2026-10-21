@@ -84,6 +84,7 @@ services:
         condition: service_healthy
     environment:
       TARIFFAI_URL: http://tariffai-api:8004
+      TARIFFAI_TIMEOUT: "${TARIFFAI_TIMEOUT:-600}"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
     ports:
       - "8005:8000"

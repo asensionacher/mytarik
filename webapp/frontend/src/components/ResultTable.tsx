@@ -50,18 +50,19 @@ export function ResultTable({ items }: Props) {
         </thead>
         <tbody className="divide-y divide-slate-100">
           {items.map((it, idx) => {
+            const lineIndex = (it.line_number ?? idx + 1) - 1;
             const r = it.classification;
             const result = r.result;
             const status = r.status;
             const code = result?.primary_code ?? "—";
             const hsDesc = result?.primary_description ?? "";
             const conf = result?.confidence ?? 0;
-            const open = openIdx === idx;
+            const open = openIdx === lineIndex;
 
             return (
               <FragmentRow
-                key={`${idx}-${code}`}
-                idx={idx}
+                key={lineIndex}
+                idx={lineIndex}
                 it={it}
                 result={result}
                 open={open}
@@ -71,7 +72,7 @@ export function ResultTable({ items }: Props) {
                 conf={conf}
                 statusColors={statusBadge(status)}
                 confidenceColors={confidenceColor(conf)}
-                onToggle={() => setOpenIdx(open ? null : idx)}
+                onToggle={() => setOpenIdx(open ? null : lineIndex)}
               />
             );
           })}

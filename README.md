@@ -136,6 +136,18 @@ cd .. && QDRANT_HOST=localhost python -m scripts.ingest_hs_codes
 
 Sube una factura a la UI, espera unos segundos y verás una tabla con cada línea, su código HS sugerido, la descripción, la confianza y el razonamiento de la cadena Section → Chapter → Heading → Subheading.
 
+La interfaz muestra la subida, la extracción de descripciones, el tiempo
+transcurrido y el número real de líneas procesadas. Los resultados aparecen en
+cuanto termina cada línea, sin esperar a toda la factura, y mantienen la
+numeración original aunque lleguen desordenados.
+
+Para reducir la espera, el modo en directo mantiene **hasta tres llamadas de
+clasificación en paralelo por factura** y reutiliza las descripciones idénticas
+dentro de la misma solicitud. No cambia el modelo ni reduce su presupuesto de
+razonamiento. La mejora afecta a facturas con varias descripciones; una sola
+línea sigue dependiendo de la latencia de Foundry. Si el proceso se interrumpe,
+los resultados ya recibidos permanecen visibles.
+
 ## Formatos soportados en el upload
 
 - **PDF** (texto embebido): se extraen las tablas (`pdfplumber`) y se toma la columna de descripción.
@@ -151,11 +163,31 @@ Sube una factura a la UI, espera unos segundos y verás una tabla con cada líne
 | POST   | `/api/classify`            | `{"description": "..."}` → clasificación de una línea       |
 | POST   | `/api/classify/raw`        | Pega texto directo, mismo comportamiento que un `.txt`     |
 
+`/api/invoice/upload` y `/api/classify/raw` aceptan
+`Accept: application/x-ndjson` para recibir eventos `stage`, `ready`, `item` y
+`done`. Los fallos posteriores al inicio del stream se envían como eventos
+`error` con `status` y `message`; no se debe considerar completa una respuesta
+sin `done`. Sin ese encabezado se conserva la respuesta JSON de siempre.
+Nginx tiene el buffering desactivado para entregar el progreso inmediatamente.
+
 ## Idiomas
 
 La UI está estructurada para i18n: los textos viven en `webapp/frontend/src/i18n/strings.ts` en el objeto `es` y tienen hueco preparado para `en` (sólo hay que añadirlo cuando se quiera).
 
 ## Solución de problemas
+
+La clasificación dispone de **600 segundos** por solicitud (el lote completo,
+incluidas sus páginas), con conexión limitada a 10 segundos. El proxy Nginx espera
+660 segundos para dejar que el backend devuelva un error **504** explícito si se
+agota el plazo. Las comprobaciones de salud conservan un timeout corto de
+3 segundos; un `/health` correcto no demuestra que Foundry o Translator respondan.
+No hay reintentos automáticos de clasificación en el cliente del backend.
+
+El plazo se puede ajustar opcionalmente con `TARIFFAI_TIMEOUT` en el `.env` de la
+raíz; si se aumenta, hay que aumentar también `proxy_read_timeout` en
+`webapp/frontend/nginx.conf` para que sea superior. Si sigue agotándose, revisa
+`docker compose logs tariffai-api` para identificar la etapa lenta y reduce el
+número de líneas por solicitud.
 
 | Síntoma                                                            | Causa / solución                                                                                          |
 | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
