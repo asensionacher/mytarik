@@ -12,7 +12,7 @@ import json
 import logging
 import traceback
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -51,17 +51,27 @@ app.add_middleware(
 
 # ── Schemas ────────────────────────────────────────────────────────────
 
+class TradeDetails(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    trade_mode: Literal["import", "export"]
+    origin_country: str = Field(..., min_length=2, max_length=2, pattern=r"^[A-Z]{2}$")
+    dispatch_country: str = Field(..., min_length=2, max_length=2, pattern=r"^[A-Z]{2}$")
+
+
 class ClassifyBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     description: str = Field(..., min_length=3, description="Descripción de una línea de factura")
     language: ResponseLanguage = "en"
+    trade: TradeDetails | None = None
 
 class RawBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     text: str = Field(..., min_length=1, description="Texto completo de la factura")
     language: ResponseLanguage = "en"
+    trade: TradeDetails
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────
@@ -94,8 +104,8 @@ def _serialize(responses) -> list[dict[str, Any]]:
 
 
 def _progress_response(
-    parser: Callable[[], ParsedInvoice], filename: str, source: str | None = None,
-    language: ResponseLanguage = "en",
+    parser: Callable[[], ParsedInvoice], filename: str, trade: TradeDetails,
+    source: str | None = None, language: ResponseLanguage = "en",
 ) -> StreamingResponse:
     def event(event_type: str, **data: Any) -> str:
         return json.dumps({"type": event_type, **data}, ensure_ascii=False) + "\n"
@@ -108,6 +118,7 @@ def _progress_response(
             invoice = {
                 "filename": filename, "source": source or parsed.source,
                 "pages": parsed.pages, "items_count": 0, "items": [],
+                "trade": trade.model_dump(),
             }
             if not total:
                 invoice["warning"] = (
@@ -118,7 +129,9 @@ def _progress_response(
             yield event("ready", invoice=invoice, total=total)
             if total:
                 async with make_client() as client:
-                    results = client.classify_progress(parsed.descriptions, language=language)
+                    results = client.classify_progress(
+                        parsed.descriptions, language=language, trade=trade.model_dump(),
+                    )
                     try:
                         completed = 0
                         async for index, response in results:
@@ -155,9 +168,17 @@ def _progress_response(
 async def upload_invoice(
     request: Request,
     file: UploadFile = File(...),
+    trade_mode: Literal["import", "export"] = Form(...),
+    origin_country: str = Form(..., min_length=2, max_length=2, pattern=r"^[A-Z]{2}$"),
+    dispatch_country: str = Form(..., min_length=2, max_length=2, pattern=r"^[A-Z]{2}$"),
     language: ResponseLanguage = Form(default="en"),
 ) -> dict[str, Any] | StreamingResponse:
     """Recibe una factura, la parsea y clasifica cada línea vía TariffAI."""
+    trade = TradeDetails(
+        trade_mode=trade_mode,
+        origin_country=origin_country,
+        dispatch_country=dispatch_country,
+    )
     raw = await file.read()
     if not raw:
         raise HTTPException(400, "Fichero vacío")
@@ -170,7 +191,9 @@ async def upload_invoice(
     filename = file.filename or "invoice"
 
     if "application/x-ndjson" in request.headers.get("accept", ""):
-        return _progress_response(lambda: parse_invoice(filename, raw), filename, language=language)
+        return _progress_response(
+            lambda: parse_invoice(filename, raw), filename, trade, language=language,
+        )
 
     try:
         parsed = parse_invoice(filename, raw)
@@ -187,6 +210,7 @@ async def upload_invoice(
             "pages": parsed.pages,
             "items_count": 0,
             "items": [],
+            "trade": trade.model_dump(),
             "warning": (
                 "No se detectaron líneas con descripción de producto. "
                 "Prueba con un PDF con tablas o revisa la calidad de la imagen."
@@ -200,6 +224,7 @@ async def upload_invoice(
             classified = await client.classify_batch(
                 parsed.descriptions,
                 language=language,
+                trade=trade.model_dump(),
             )
     except (httpx.TimeoutException, TimeoutError) as exc:
         logger.exception("Tiempo de espera agotado clasificando la factura")
@@ -222,6 +247,7 @@ async def upload_invoice(
         "pages": parsed.pages,
         "items_count": len(items),
         "items": items,
+        "trade": trade.model_dump(),
     }
 
 
@@ -233,6 +259,7 @@ async def classify_single(body: ClassifyBody) -> dict[str, Any]:
             response = await client.classify_one(
                 body.description,
                 language=body.language,
+                trade=body.trade.model_dump() if body.trade else None,
             )
     except (httpx.TimeoutException, TimeoutError) as exc:
         logger.exception("Tiempo de espera agotado clasificando la descripción")
@@ -248,7 +275,8 @@ async def classify_raw(body: RawBody, request: Request) -> dict[str, Any] | Stre
     """Pega texto plano (una descripción por línea)."""
     if "application/x-ndjson" in request.headers.get("accept", ""):
         return _progress_response(
-            lambda: parse_text(body.text.encode("utf-8")), "text", source="raw", language=body.language,
+            lambda: parse_text(body.text.encode("utf-8")), "text", body.trade,
+            source="raw", language=body.language,
         )
 
     parsed = parse_text(body.text.encode("utf-8"))
@@ -257,6 +285,7 @@ async def classify_raw(body: RawBody, request: Request) -> dict[str, Any] | Stre
             "source": "raw",
             "items_count": 0,
             "items": [],
+            "trade": body.trade.model_dump(),
             "warning": (
                 "No se detectaron descripciones válidas en el texto."
                 if body.language == "es" else "No valid descriptions were found in the text."
@@ -268,6 +297,7 @@ async def classify_raw(body: RawBody, request: Request) -> dict[str, Any] | Stre
             responses = await client.classify_batch(
                 parsed.descriptions,
                 language=body.language,
+                trade=body.trade.model_dump(),
             )
     except (httpx.TimeoutException, TimeoutError) as exc:
         logger.exception("Tiempo de espera agotado clasificando el texto")
@@ -284,6 +314,7 @@ async def classify_raw(body: RawBody, request: Request) -> dict[str, Any] | Stre
         "source": "raw",
         "items_count": len(items),
         "items": items,
+        "trade": body.trade.model_dump(),
     }
 
 

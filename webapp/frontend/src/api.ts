@@ -1,6 +1,6 @@
 import type {
   ClassificationEvent, ClassificationProgress, HealthResponse, InvoiceItem,
-  InvoiceUploadResponse,
+  InvoiceUploadResponse, TradeDetails,
 } from "./types";
 import { getLang } from "./i18n/strings";
 
@@ -29,13 +29,29 @@ async function jsonOrThrow<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
+export function isValidTradeDetails(value: unknown): value is TradeDetails {
+  if (!value || typeof value !== "object") return false;
+  const trade = value as Partial<TradeDetails>;
+  return (
+    (trade.trade_mode === "import" || trade.trade_mode === "export") &&
+    typeof trade.origin_country === "string" &&
+    /^[A-Z]{2}$/.test(trade.origin_country) &&
+    typeof trade.dispatch_country === "string" &&
+    /^[A-Z]{2}$/.test(trade.dispatch_country)
+  );
+}
+
 export async function uploadInvoice(
   file: File,
+  trade: TradeDetails,
   onProgress?: (progress: ClassificationProgress) => void,
 ): Promise<InvoiceUploadResponse> {
   const fd = new FormData();
   fd.append("file", file);
   fd.append("language", getLang());
+  fd.append("trade_mode", trade.trade_mode);
+  fd.append("origin_country", trade.origin_country);
+  fd.append("dispatch_country", trade.dispatch_country);
   const res = await fetch("/api/invoice/upload", {
     method: "POST",
     headers: onProgress ? { accept: "application/x-ndjson" } : undefined,
@@ -47,6 +63,7 @@ export async function uploadInvoice(
 
 export async function classifyRaw(
   text: string,
+  trade: TradeDetails,
   onProgress?: (progress: ClassificationProgress) => void,
 ): Promise<InvoiceUploadResponse> {
   const res = await fetch("/api/classify/raw", {
@@ -55,7 +72,7 @@ export async function classifyRaw(
       "content-type": "application/json",
       ...(onProgress ? { accept: "application/x-ndjson" } : {}),
     },
-    body: JSON.stringify({ text, language: getLang() }),
+    body: JSON.stringify({ text, language: getLang(), trade }),
   });
   if (onProgress) return readProgress(res, onProgress);
   return jsonOrThrow<InvoiceUploadResponse>(res);
@@ -86,7 +103,8 @@ async function readProgress(
         break;
       case "ready":
         if (invoice || !Number.isInteger(event.total) || event.total < 0
-            || !event.invoice || !Array.isArray(event.invoice.items)) {
+            || !event.invoice || !Array.isArray(event.invoice.items)
+            || !isValidTradeDetails(event.invoice.trade)) {
           throw new ApiError(502, "Invalid classification metadata");
         }
         total = event.total;

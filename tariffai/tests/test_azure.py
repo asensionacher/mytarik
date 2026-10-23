@@ -12,7 +12,7 @@ from azure.core.pipeline.transport import RequestsTransport
 from pydantic import ValidationError
 
 from app import llm_provider, translation
-from app.schemas import BatchClassifyRequest, ClassifyRequest
+from app.schemas import BatchClassifyRequest, ClassifyRequest, TradeContext
 
 
 def test_foundry_uses_project_managed_identity_and_server_deployment(monkeypatch):
@@ -175,6 +175,63 @@ def test_classification_routes_use_foundry_and_preserve_result(monkeypatch):
         assert result["result"]["total_tokens"] == 30
     assert provider.complete.call_count == 2
     assert set(provider.complete.call_args.kwargs) == {"system", "user"}
+
+
+def test_trade_context_reaches_the_classification_prompt(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import graph, llm_classifier, main
+    from app.schemas import HSCandidate
+
+    candidate = HSCandidate(
+        code="610510", description="Cotton shirts", chapter_code="61",
+        chapter_description="Knitted apparel", heading_code="6105",
+        heading_description="Shirts", retrieval_score=1.0, retrieval_method="hybrid",
+    )
+    monkeypatch.setattr(graph, "retrieve_candidates", Mock(return_value=[candidate]))
+    provider = Mock()
+    provider.complete.return_value = llm_provider.LLMResponse(text=json.dumps({
+        "primary_code": "610510", "confidence": 0.95,
+        "primary_description": "Cotton shirts", "reasoning": {},
+    }))
+    monkeypatch.setattr(llm_classifier, "get_provider", lambda: provider)
+    trade = TradeContext(
+        trade_mode="import", origin_country="ES", dispatch_country="CN",
+    )
+    client = TestClient(main.app)
+    single = client.post("/classify", json={
+        "description": "cotton shirts", "trade": trade.model_dump(),
+    })
+    batch = client.post("/classify/batch", json={
+        "descriptions": ["cotton shirts"], "trade": trade.model_dump(),
+    })
+    assert single.status_code == batch.status_code == 200
+    assert provider.complete.call_count == 2
+    for call in provider.complete.call_args_list:
+        user_prompt = call.kwargs["user"]
+        assert "Operation: import" in user_prompt
+        assert "Country of origin (ISO 3166-1 alpha-2): ES" in user_prompt
+        assert "Country of dispatch (ISO 3166-1 alpha-2): CN" in user_prompt
+
+
+def test_primary_code_outside_retrieved_candidates_is_discarded(monkeypatch):
+    from app import llm_classifier
+    from app.schemas import HSCandidate
+
+    candidate = HSCandidate(
+        code="610510", description="Cotton shirts", chapter_code="61",
+        chapter_description="Knitted apparel", heading_code="6105",
+        heading_description="Shirts", retrieval_score=1.0, retrieval_method="hybrid",
+    )
+    provider = Mock()
+    provider.complete.return_value = llm_provider.LLMResponse(text=json.dumps({
+        "primary_code": "999999", "confidence": 0.99,
+        "primary_description": "Invalid code", "reasoning": {},
+    }))
+    monkeypatch.setattr(llm_classifier, "get_provider", lambda: provider)
+    result = llm_classifier.classify_with_llm("cotton shirts", [candidate])
+    assert result.primary_code is None
+    assert result.is_ambiguous is True
 
 
 @pytest.mark.parametrize("schema,payload", [

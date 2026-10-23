@@ -23,6 +23,7 @@ from app.schemas import (
     ClassificationResult,
     ClassificationReasoning,
     ResponseLanguage,
+    TradeContext,
 )
 from app.translation import translate_from_en
 
@@ -76,6 +77,7 @@ CLASSIFICATION_USER_TEMPLATE = """## Cargo Description (cleaned)
 ## Candidate HS Codes
 {candidates_text}
 
+{trade_context}
 ## Task
 Analyze the cargo description, select the single most accurate 6-digit HS code
 from the candidates, walk through the HS hierarchy top-down
@@ -99,11 +101,25 @@ def _format_candidates(candidates: list[HSCandidate]) -> str:
     return "\n\n".join(lines)
 
 
+def _format_trade_context(trade: TradeContext | None) -> str:
+    if trade is None:
+        return ""
+    return (
+        "## Trade Context\n"
+        f"Operation: {trade.trade_mode}\n"
+        f"Country of origin (ISO 3166-1 alpha-2): {trade.origin_country}\n"
+        f"Country of dispatch (ISO 3166-1 alpha-2): {trade.dispatch_country}\n"
+        "Use this context only to resolve ambiguities in the product identity. "
+        "Choose the HS code from the cargo characteristics, not from the operation or countries alone.\n"
+    )
+
+
 def classify_with_llm(
     cleaned_text: str,
     candidates: list[HSCandidate],
     raw_text: str = "",
     language: ResponseLanguage = "en",
+    trade: TradeContext | None = None,
 ) -> ClassificationResult:
     """
     Make a single LLM call to classify the cargo description.
@@ -113,6 +129,7 @@ def classify_with_llm(
         candidates: Top-K candidate HS codes (from Stage 2)
         raw_text: Original raw text (for the output record)
         language: Language for descriptions, reasoning and alternatives
+        trade: Commercial context for disambiguation
 
     Returns:
         ClassificationResult with code, reasoning chain and confidence
@@ -132,6 +149,7 @@ def classify_with_llm(
     user = CLASSIFICATION_USER_TEMPLATE.format(
         cleaned_text=cleaned_text,
         candidates_text=_format_candidates(candidates),
+        trade_context=_format_trade_context(trade),
     )
 
     response = llm.complete(
@@ -156,6 +174,9 @@ def classify_with_llm(
     )
 
     primary_code = result_data.get("primary_code") or None
+    if primary_code and primary_code not in {candidate.code for candidate in candidates}:
+        logger.warning("Foundry returned a code outside the retrieved candidates: %s", primary_code)
+        primary_code = None
     primary_desc = result_data.get("primary_description") or ""
     hierarchy: dict = {}
     if primary_code:

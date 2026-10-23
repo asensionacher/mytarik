@@ -136,6 +136,13 @@ cd .. && QDRANT_HOST=localhost python -m scripts.ingest_hs_codes
 
 Sube una factura a la UI, espera unos segundos y verás una tabla con cada línea, su código HS sugerido, la descripción, la confianza y el razonamiento de la cadena Section → Chapter → Heading → Subheading.
 
+Antes de clasificar, la UI pide el tipo de operación (importación o exportación),
+el país de origen y el país de expedición; son obligatorios y se aplican a todas
+las líneas de la factura. En la tabla, cada línea permite **aceptar** el código
+HS propuesto o **cambiarlo** por otro de 6 dígitos (y restablecer el original).
+Las revisiones son estado de la sesión: no se envían a ningún servicio ni se
+persisten.
+
 La interfaz muestra la subida, la extracción de descripciones, el tiempo
 transcurrido y el número real de líneas procesadas. Los resultados aparecen en
 cuanto termina cada línea, sin esperar a toda la factura, y mantienen la
@@ -172,9 +179,17 @@ los resultados ya recibidos permanecen visibles.
 | Método | Ruta                       | Descripción                                                |
 | ------ | -------------------------- | ---------------------------------------------------------- |
 | GET    | `/health`                  | Health-check del backend + alcanzabilidad de TariffAI      |
-| POST   | `/api/invoice/upload`      | `multipart/form-data` con `file` (pdf/txt/png/jpg/webp)    |
+| POST   | `/api/invoice/upload`      | `multipart/form-data` con `file` (pdf/txt/png/jpg/webp), `trade_mode` (`import`\|`export`), `origin_country` y `dispatch_country` (ISO-2) |
 | POST   | `/api/classify`            | `{"description": "..."}` → clasificación de una línea       |
 | POST   | `/api/classify/raw`        | Pega texto directo, mismo comportamiento que un `.txt`     |
+
+El contexto comercial es **obligatorio** en las rutas de factura (`/api/invoice/upload`
+y `/api/classify/raw`): un solo contexto por factura, con `trade_mode`
+(`import` o `export`), `origin_country` y `dispatch_country` en ISO-2. La UI lo
+pide antes de clasificar y lo devuelve junto a los resultados. El contexto viaja
+hasta TariffAI como bloque "Trade Context" del prompt para desambiguar la
+identidad del producto; el código HS sigue determinándose por las características
+de la mercancía.
 
 `/api/invoice/upload` y `/api/classify/raw` aceptan
 `Accept: application/x-ndjson` para recibir eventos `stage`, `ready`, `item` y

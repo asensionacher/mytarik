@@ -75,7 +75,7 @@ def classify_endpoint(req: ClassifyRequest):
     Uses the server-configured Azure Foundry deployment only.
     """
     try:
-        result = classify_cargo(req.description, language=req.language)
+        result = classify_cargo(req.description, language=req.language, trade=req.trade)
         status = "ambiguous" if result.is_ambiguous else "classified"
         return ClassifyResponse(status=status, result=result)
     except Exception as e:
@@ -92,7 +92,7 @@ def batch_classify_endpoint(req: BatchClassifyRequest):
     results = []
     for desc in req.descriptions:
         try:
-            result = classify_cargo(desc, language=req.language)
+            result = classify_cargo(desc, language=req.language, trade=req.trade)
             status = "ambiguous" if result.is_ambiguous else "classified"
             results.append(ClassifyResponse(status=status, result=result))
         except Exception as e:

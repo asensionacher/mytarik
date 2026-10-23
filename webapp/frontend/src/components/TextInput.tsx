@@ -3,10 +3,11 @@ import { t } from "../i18n/strings";
 
 interface Props {
   loading: boolean;
+  canSubmit: boolean;
   onSubmit: (text: string) => void;
 }
 
-export function TextInput({ loading, onSubmit }: Props) {
+export function TextInput({ loading, canSubmit, onSubmit }: Props) {
   const s = t().paste;
   const [text, setText] = useState("");
 
@@ -21,11 +22,11 @@ export function TextInput({ loading, onSubmit }: Props) {
       />
       <button
         type="button"
-        disabled={!text.trim() || loading}
+        disabled={!text.trim() || !canSubmit || loading}
         onClick={() => onSubmit(text)}
         className={[
           "w-full rounded-xl px-4 py-3 text-base font-medium text-white shadow-sm transition-colors",
-          !text.trim() || loading
+          !text.trim() || !canSubmit || loading
             ? "bg-slate-300 cursor-not-allowed"
             : "bg-blue-600 hover:bg-blue-700",
         ].join(" ")}

@@ -6,6 +6,7 @@ const ACCEPTED_EXTS = ".pdf,.txt,.csv,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff";
 
 interface Props {
   loading: boolean;
+  canSubmit: boolean;
   onSubmit: (file: File) => void;
 }
 
@@ -15,7 +16,7 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-export function InvoiceUpload({ loading, onSubmit }: Props) {
+export function InvoiceUpload({ loading, canSubmit, onSubmit }: Props) {
   const s = t().upload;
   const [dragOver, setDragOver] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -126,11 +127,11 @@ export function InvoiceUpload({ loading, onSubmit }: Props) {
 
       <button
         type="button"
-        disabled={!file || loading}
+        disabled={!file || !canSubmit || loading}
         onClick={() => file && onSubmit(file)}
         className={[
           "w-full rounded-xl px-4 py-3 text-base font-medium text-white shadow-sm transition-colors",
-          !file || loading
+          !file || !canSubmit || loading
             ? "bg-slate-300 cursor-not-allowed"
             : "bg-blue-600 hover:bg-blue-700",
         ].join(" ")}

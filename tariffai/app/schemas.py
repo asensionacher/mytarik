@@ -3,6 +3,16 @@ from typing import Literal
 
 
 ResponseLanguage = Literal["es", "en"]
+TradeMode = Literal["import", "export"]
+
+
+class TradeContext(BaseModel):
+    """Commercial context shared by the descriptions being classified."""
+    model_config = ConfigDict(extra="forbid")
+
+    trade_mode: TradeMode
+    origin_country: str = Field(..., min_length=2, max_length=2, pattern=r"^[A-Z]{2}$")
+    dispatch_country: str = Field(..., min_length=2, max_length=2, pattern=r"^[A-Z]{2}$")
 
 
 class HSCodeEntry(BaseModel):
@@ -44,7 +54,9 @@ class ClassificationResult(BaseModel):
     """Final classification output for a single cargo description."""
     input_text: str = Field(..., description="Original raw cargo description")
     cleaned_text: str = Field(..., description="Preprocessed cargo text")
-    primary_code: str | None = Field(default=None, description="Recommended 6-digit HS code")
+    primary_code: str | None = Field(
+        default=None, pattern=r"^\d{6}$", description="Recommended 6-digit HS code",
+    )
     primary_description: str | None = Field(default="", description="HS description for the primary code")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Classification confidence (0-1)")
     reasoning: ClassificationReasoning = Field(..., description="Step-by-step reasoning chain")
@@ -71,6 +83,7 @@ class ClassifyRequest(BaseModel):
     """API request to classify a cargo description."""
     model_config = ConfigDict(extra="forbid")
     language: ResponseLanguage = Field(default="en", description="Language for generated descriptions and reasoning")
+    trade: TradeContext | None = Field(default=None, description="Commercial context for the classification")
 
     description: str = Field(
         ...,
@@ -88,6 +101,7 @@ class BatchClassifyRequest(BaseModel):
     """API request to classify multiple cargo descriptions."""
     model_config = ConfigDict(extra="forbid")
     language: ResponseLanguage = Field(default="en", description="Response language for every description")
+    trade: TradeContext | None = Field(default=None, description="Commercial context for every description")
 
     descriptions: list[str] = Field(..., min_length=1, max_length=50)
 

@@ -10,13 +10,41 @@ function moduleURL(source) {
   return `data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`;
 }
 
+function componentModuleURL(source) {
+  const { outputText } = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+      jsx: ts.JsxEmit.React,
+    },
+  });
+  return `data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`;
+}
+
 const stringsURL = moduleURL(await readFile(new URL("../src/i18n/strings.ts", import.meta.url), "utf8"));
 const { getLang, setLang } = await import(stringsURL);
 const source = (await readFile(new URL("../src/api.ts", import.meta.url), "utf8"))
   .replace('from "./i18n/strings"', `from "${stringsURL}"`);
 const { ApiError, classifyRaw, uploadInvoice } = await import(moduleURL(source));
 
-const invoice = { filename: "text", source: "raw", items_count: 0, items: [] };
+const reactURL = moduleURL(
+  "export const useState = () => []; export default { createElement: (...args) => args };",
+);
+const detailPanelURL = moduleURL("export function DetailPanel() { return null; }");
+const resultTableSource = (await readFile(
+  new URL("../src/components/ResultTable.tsx", import.meta.url), "utf8",
+))
+  .replace(
+    'import { useState } from "react";',
+    'import React, { useState } from "react";',
+  )
+  .replace('from "react"', `from "${reactURL}"`)
+  .replace('from "../i18n/strings"', `from "${stringsURL}"`)
+  .replace('from "./DetailPanel"', `from "${detailPanelURL}"`);
+const { createCodeReview, isValidHsCode } = await import(componentModuleURL(resultTableSource));
+
+const trade = { trade_mode: "import", origin_country: "ES", dispatch_country: "CN" };
+const invoice = { filename: "text", source: "raw", items_count: 0, items: [], trade };
 const ready = { type: "ready", total: 2, invoice };
 const item = (index) => ({
   type: "item", index,
@@ -47,8 +75,9 @@ test("decodes split UTF-8 and shows out-of-order completions in original order",
     }));
   });
   const updates = [];
-  const result = await classifyRaw("algodón", (progress) => updates.push(progress));
+  const result = await classifyRaw("algodón", trade, (progress) => updates.push(progress));
   assert.deepEqual(result.items.map((entry) => entry.line_number), [1, 2]);
+  assert.deepEqual(result.trade, trade);
   assert.equal(result.items[0].description, "algodón 0");
   assert.deepEqual(updates.map((entry) => entry.completed), [0, 0, 1, 2, 2]);
   assert.equal(updates.at(-1).stage, "done");
@@ -70,7 +99,7 @@ test("publishes an item before the stream finishes", async (t) => {
     },
   })));
   let finished = false;
-  const request = classifyRaw("shirts", (progress) => {
+  const request = classifyRaw("shirts", trade, (progress) => {
     if (progress.completed === 1) reportFirst(progress);
   }).then((result) => {
     finished = true;
@@ -90,7 +119,7 @@ test("reports a streamed timeout without discarding already received results", a
   ));
   const updates = [];
   await assert.rejects(
-    classifyRaw("shirts", (progress) => updates.push(progress)),
+    classifyRaw("shirts", trade, (progress) => updates.push(progress)),
     (error) => error instanceof ApiError && error.status === 504,
   );
   assert.equal(updates.at(-1).invoice.items.length, 1);
@@ -101,7 +130,7 @@ test("rejects truncated streams and false completion", async (t) => {
   for (const events of [[ready, item(0)], [ready, item(0), { type: "done" }]]) {
     t.mock.method(globalThis, "fetch", async () => response(events.map(JSON.stringify).join("\n")));
     await assert.rejects(
-      classifyRaw("shirts", () => {}),
+      classifyRaw("shirts", trade, () => {}),
       (error) => error instanceof ApiError && error.status === 502,
     );
     t.mock.restoreAll();
@@ -112,11 +141,40 @@ test("rejects duplicate or out-of-range item indices", async (t) => {
   for (const events of [[ready, item(0), item(0)], [ready, item(2)]]) {
     t.mock.method(globalThis, "fetch", async () => response(events.map(JSON.stringify).join("\n")));
     await assert.rejects(
-      classifyRaw("shirts", () => {}),
+      classifyRaw("shirts", trade, () => {}),
       (error) => error instanceof ApiError && error.status === 502,
     );
     t.mock.restoreAll();
   }
+});
+
+test("rejects a ready event without valid trade details", async (t) => {
+  const invalidReady = {
+    type: "ready",
+    total: 0,
+    invoice: { ...invoice, trade: { ...trade, origin_country: "invalid" } },
+  };
+  t.mock.method(globalThis, "fetch", async () => response(
+    [invalidReady, { type: "done" }].map(JSON.stringify).join("\n"),
+  ));
+  await assert.rejects(
+    classifyRaw("shirts", trade, () => {}),
+    (error) => error instanceof ApiError && error.status === 502,
+  );
+});
+
+test("validates and tracks reviewed tariff codes", () => {
+  assert.equal(isValidHsCode("620311"), true);
+  assert.equal(isValidHsCode("62031"), false);
+  assert.equal(isValidHsCode("62031A"), false);
+  assert.deepEqual(createCodeReview("620311", "620311"), {
+    code: "620311",
+    changed: false,
+  });
+  assert.deepEqual(createCodeReview("610910", "620311"), {
+    code: "610910",
+    changed: true,
+  });
 });
 
 test("sends the selected website language for text and invoice uploads", async (t) => {
@@ -129,9 +187,13 @@ test("sends the selected website language for text and invoice uploads", async (
   });
   for (const language of ["es", "en"]) {
     setLang(language);
-    await classifyRaw("cotton shirts");
-    await uploadInvoice(new Blob(["cotton shirts"], { type: "text/plain" }));
+    await classifyRaw("cotton shirts", trade);
+    await uploadInvoice(new Blob(["cotton shirts"], { type: "text/plain" }), trade);
     assert.equal(JSON.parse(requests.at(-2).options.body).language, language);
+    assert.deepEqual(JSON.parse(requests.at(-2).options.body).trade, trade);
     assert.equal(requests.at(-1).options.body.get("language"), language);
+    assert.equal(requests.at(-1).options.body.get("trade_mode"), trade.trade_mode);
+    assert.equal(requests.at(-1).options.body.get("origin_country"), trade.origin_country);
+    assert.equal(requests.at(-1).options.body.get("dispatch_country"), trade.dispatch_country);
   }
 });

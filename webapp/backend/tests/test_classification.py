@@ -10,15 +10,52 @@ from app import main
 from app.tariffai_client import TariffAIClient
 
 
+TRADE = {
+    "trade_mode": "import",
+    "origin_country": "ES",
+    "dispatch_country": "CN",
+}
+TRADE_FORM = {
+    "trade_mode": TRADE["trade_mode"],
+    "origin_country": TRADE["origin_country"],
+    "dispatch_country": TRADE["dispatch_country"],
+}
+
+
 def test_json_endpoints_reject_model_and_provider_overrides():
     client = TestClient(main.app)
     for path, payload in [
         ("/api/classify", {"description": "cotton shirts"}),
-        ("/api/classify/raw", {"text": "cotton shirts"}),
+        ("/api/classify/raw", {"text": "cotton shirts", "trade": TRADE}),
     ]:
         for field in ("modelo", "proveedor", "model", "provider"):
-            response = client.post(path, json={**payload, field: "other"})
-            assert response.status_code == 422
+                    response = client.post(path, json={**payload, field: "other"})
+                    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("path", ["/api/classify/raw", "/api/invoice/upload"])
+def test_invoice_routes_require_trade_details(path):
+    client = TestClient(main.app)
+    if path == "/api/classify/raw":
+        response = client.post(path, json={"text": "cotton shirts"})
+    else:
+        response = client.post(path, files={
+            "file": ("invoice.txt", b"cotton shirts", "text/plain"),
+        })
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("path", ["/api/classify/raw", "/api/invoice/upload"])
+def test_trade_details_require_valid_country_codes(path):
+    client = TestClient(main.app)
+    invalid_trade = {**TRADE, "origin_country": "ESP"}
+    if path == "/api/classify/raw":
+        response = client.post(path, json={"text": "cotton shirts", "trade": invalid_trade})
+    else:
+        response = client.post(path, data={
+            **TRADE_FORM, "origin_country": "ESP",
+        }, files={"file": ("invoice.txt", b"cotton shirts", "text/plain")})
+    assert response.status_code == 422
 
 
 def test_upload_cannot_forward_model_selection(monkeypatch):
@@ -32,10 +69,13 @@ def test_upload_cannot_forward_model_selection(monkeypatch):
     response = TestClient(main.app).post(
         "/api/invoice/upload",
         files={"file": ("invoice.txt", b"cotton shirts", "text/plain")},
-        data={"modelo": "other", "proveedor": "other"},
+        data={**TRADE_FORM, "modelo": "other", "proveedor": "other"},
     )
     assert response.status_code == 200
-    tariffai.classify_batch.assert_awaited_once_with(["cotton shirts"], language="en")
+    assert response.json()["trade"] == TRADE
+    tariffai.classify_batch.assert_awaited_once_with(
+        ["cotton shirts"], language="en", trade=TRADE,
+    )
 
 
 def test_tariffai_client_sends_descriptions_and_language_and_preserves_batching():
@@ -53,14 +93,14 @@ def test_tariffai_client_sends_descriptions_and_language_and_preserves_batching(
             base_url=client.base_url, transport=httpx.MockTransport(handle),
         ) as transport:
             client._client = transport
-            await client.classify_one("cotton shirts")
-            assert len(await client.classify_batch(["cotton shirts"] * 51)) == 51
+            await client.classify_one("cotton shirts", trade=TRADE)
+            assert len(await client.classify_batch(["cotton shirts"] * 51, trade=TRADE)) == 51
 
     asyncio.run(exercise())
     assert requests == [
-        ("/classify", {"description": "cotton shirts", "language": "en"}),
-        ("/classify/batch", {"descriptions": ["cotton shirts"] * 50, "language": "en"}),
-        ("/classify/batch", {"descriptions": ["cotton shirts"], "language": "en"}),
+        ("/classify", {"description": "cotton shirts", "language": "en", "trade": TRADE}),
+        ("/classify/batch", {"descriptions": ["cotton shirts"] * 50, "language": "en", "trade": TRADE}),
+        ("/classify/batch", {"descriptions": ["cotton shirts"], "language": "en", "trade": TRADE}),
     ]
 
 
@@ -138,10 +178,14 @@ def test_classification_timeout_returns_explicit_504(monkeypatch, timeout, path)
     if path == "/api/invoice/upload":
         response = client.post(
             path, files={"file": ("invoice.txt", b"cotton shirts", "text/plain")},
+            data=TRADE_FORM,
         )
     else:
         field = "description" if path == "/api/classify" else "text"
-        response = client.post(path, json={field: "cotton shirts"})
+        payload = {field: "cotton shirts"}
+        if path == "/api/classify/raw":
+            payload["trade"] = TRADE
+        response = client.post(path, json=payload)
     assert response.status_code == 504
     assert "tiempo de espera" in response.json()["detail"]
 
@@ -253,8 +297,9 @@ def test_progress_deadline_cancels_inflight_requests():
 def test_streaming_routes_send_stages_and_out_of_order_results(monkeypatch, path):
     from app.tariffai_client import ClassifyResponse
 
-    async def classify_progress(descriptions, language="en"):
+    async def classify_progress(descriptions, language="en", trade=None):
         assert descriptions == ["first shirt", "second shirt"]
+        assert trade == TRADE
         yield 1, ClassifyResponse(status="error", error="test result")
         yield 0, ClassifyResponse(status="error", error="test result")
 
@@ -270,15 +315,18 @@ def test_streaming_routes_send_stages_and_out_of_order_results(monkeypatch, path
     if path == "/api/invoice/upload":
         response = client.post(path, headers=headers, files={
             "file": ("invoice.txt", b"first shirt\nsecond shirt", "text/plain"),
-        })
+        }, data=TRADE_FORM)
     else:
-        response = client.post(path, headers=headers, json={"text": "first shirt\nsecond shirt"})
+        response = client.post(path, headers=headers, json={
+            "text": "first shirt\nsecond shirt", "trade": TRADE,
+        })
     assert response.status_code == 200
     assert response.headers["x-accel-buffering"] == "no"
     events = [json.loads(line) for line in response.text.splitlines()]
     assert [event["type"] for event in events] == ["stage", "ready", "item", "item", "done"]
     assert events[0]["stage"] == "parsing"
     assert events[1]["total"] == 2
+    assert events[1]["invoice"]["trade"] == TRADE
     assert [event["index"] for event in events if event["type"] == "item"] == [1, 0]
     assert events[2]["item"]["line_number"] == 2
 
@@ -286,7 +334,7 @@ def test_streaming_routes_send_stages_and_out_of_order_results(monkeypatch, path
 def test_streaming_error_preserves_previous_events(monkeypatch):
     from app.tariffai_client import ClassifyResponse
 
-    async def classify_progress(descriptions, language="en"):
+    async def classify_progress(descriptions, language="en", trade=None):
         yield 0, ClassifyResponse(status="error", error="test result")
         raise TimeoutError()
 
@@ -294,7 +342,7 @@ def test_streaming_error_preserves_previous_events(monkeypatch):
     context.__aenter__.return_value = Mock(classify_progress=classify_progress)
     monkeypatch.setattr(main, "make_client", lambda: context)
     response = TestClient(main.app).post(
-        "/api/classify/raw", json={"text": "first shirt\nsecond shirt"},
+        "/api/classify/raw", json={"text": "first shirt\nsecond shirt", "trade": TRADE},
         headers={"accept": "application/x-ndjson"},
     )
     events = [json.loads(line) for line in response.text.splitlines()]
@@ -312,7 +360,7 @@ def test_live_http_stream_delivers_events_before_classification_finishes(monkeyp
         first_result = asyncio.Event()
         finish = asyncio.Event()
 
-        async def classify_progress(descriptions, language="en"):
+        async def classify_progress(descriptions, language="en", trade=None):
             await first_result.wait()
             yield 1, ClassifyResponse(status="error", error="test result")
             await finish.wait()
@@ -335,7 +383,7 @@ def test_live_http_stream_delivers_events_before_classification_finishes(monkeyp
                     async with httpx.AsyncClient(trust_env=False) as client:
                         async with client.stream(
                             "POST", f"http://127.0.0.1:{port}/api/classify/raw",
-                            json={"text": "first shirt\nsecond shirt"},
+                            json={"text": "first shirt\nsecond shirt", "trade": TRADE},
                             headers={"accept": "application/x-ndjson"},
                         ) as response:
                             lines = response.aiter_lines()
@@ -439,15 +487,17 @@ def test_response_language_reaches_tariffai_on_every_route(monkeypatch, language
     client = TestClient(main.app)
     headers = {"accept": "application/x-ndjson"} if streaming else {}
     if path == "/api/invoice/upload":
-        response = client.post(path, headers=headers, data={"language": language}, files={
+        response = client.post(path, headers=headers, data={**TRADE_FORM, "language": language}, files={
             "file": ("invoice.txt", b"cotton shirts", "text/plain"),
         })
     else:
         field = "description" if path == "/api/classify" else "text"
-        response = client.post(path, headers=headers, json={field: "cotton shirts", "language": language})
+        payload = {field: "cotton shirts", "language": language, "trade": TRADE}
+        response = client.post(path, headers=headers, json=payload)
     assert response.status_code == 200
     assert requests
     assert all(request["language"] == language for request in requests)
+    assert all(request["trade"] == TRADE for request in requests)
     if streaming:
         assert json.loads(response.text.splitlines()[-1])["type"] == "done"
 
@@ -456,10 +506,13 @@ def test_response_language_reaches_tariffai_on_every_route(monkeypatch, language
 def test_unsupported_response_language_is_rejected(path):
     client = TestClient(main.app)
     if path == "/api/invoice/upload":
-        response = client.post(path, data={"language": "fr"}, files={
+        response = client.post(path, data={**TRADE_FORM, "language": "fr"}, files={
             "file": ("invoice.txt", b"cotton shirts", "text/plain"),
         })
     else:
         field = "description" if path == "/api/classify" else "text"
-        response = client.post(path, json={field: "cotton shirts", "language": "fr"})
+        payload = {field: "cotton shirts", "language": "fr"}
+        if path == "/api/classify/raw":
+            payload["trade"] = TRADE
+        response = client.post(path, json=payload)
     assert response.status_code == 422

@@ -10,9 +10,28 @@ import {
   t,
   type Lang,
 } from "./i18n/strings";
-import type { ClassificationProgress, HealthResponse, InvoiceUploadResponse } from "./types";
+import type {
+  ClassificationProgress,
+  HealthResponse,
+  InvoiceUploadResponse,
+  TradeDetails,
+  TradeMode,
+} from "./types";
 
 type Tab = "upload" | "paste";
+
+const COUNTRY_CODES = (
+  "AW AF AO AI AX AL AD AE AR AM AS AQ TF AG AU AT AZ BI BE BJ BQ BF BD BG BH BS " +
+  "BA BL BY BZ BM BO BR BB BN BT BV BW CF CA CC CH CL CN CI CM CD CG CK CO KM CV " +
+  "CR CU CW CX KY CY CZ DE DJ DM DK DO DZ EC EG ER EH ES EE ET FI FJ FK FR FO FM " +
+  "GA GB GE GG GH GI GN GP GM GW GQ GR GD GL GT GF GU GY HK HM HN HR HT HU ID IM IN " +
+  "IO IE IR IQ IS IL IT JM JE JO JP KZ KE KG KH KI KN KR KW LA LB LR LY LC LI LK " +
+  "LS LT LU LV MO MF MA MC MD MG MV MX MH MK ML MT MM ME MN MP MZ MR MS MQ MU MW MY " +
+  "YT NA NC NE NF NG NI NU NL NO NP NR NZ OM PK PA PN PE PH PW PG PL PR KP PT PY " +
+  "PS PF QA RE RO RU RW SA SD SN SG GS SH SJ SB SL SV SM SO PM RS SS ST SR SK SI " +
+  "SE SZ SX SC SY TC TD TG TH TJ TK TM TL TO TT TN TR TV TW TZ UG UA UM UY US UZ " +
+  "VA VC VE VG VI VN VU WF WS YE ZA ZM ZW"
+).split(" ");
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("upload");
@@ -23,11 +42,30 @@ export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [progress, setProgress] = useState<ClassificationProgress | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [tradeMode, setTradeMode] = useState<TradeMode | "">("");
+  const [originCountry, setOriginCountry] = useState("");
+  const [dispatchCountry, setDispatchCountry] = useState("");
 
   // Re-render when language changes
   const [, setLangVersion] = useState(0);
   const currentLang: Lang = getLang();
   const dict = t();
+
+  const countryOptions = useMemo(() => {
+    const names = new Intl.DisplayNames([currentLang], { type: "region" });
+    return COUNTRY_CODES
+      .map((code) => ({ code, name: names.of(code) ?? code }))
+      .sort((a, b) => a.name.localeCompare(b.name, currentLang));
+  }, [currentLang]);
+
+  const trade = useMemo<TradeDetails | null>(() => {
+    if (!tradeMode || !originCountry || !dispatchCountry) return null;
+    return {
+      trade_mode: tradeMode,
+      origin_country: originCountry,
+      dispatch_country: dispatchCountry,
+    };
+  }, [dispatchCountry, originCountry, tradeMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,7 +92,14 @@ export default function App() {
     }
   }
 
+  function resetTrade() {
+    setTradeMode("");
+    setOriginCountry("");
+    setDispatchCountry("");
+  }
+
   async function handleFile(file: File) {
+    if (!trade) return;
     setError(null);
     setWarning(null);
     setResult(null);
@@ -62,8 +107,9 @@ export default function App() {
     setProgress({ stage: "uploading", completed: 0, total: 0, invoice: null });
     setLoading(true);
     try {
-      const res = await uploadInvoice(file, handleProgress);
+      const res = await uploadInvoice(file, trade, handleProgress);
       setResult(res);
+      resetTrade();
       if (res.warning) setWarning(res.warning);
     } catch (e) {
       setError(humanizeError(e));
@@ -74,6 +120,7 @@ export default function App() {
   }
 
   async function handleText(text: string) {
+    if (!trade) return;
     setError(null);
     setWarning(null);
     setResult(null);
@@ -81,8 +128,9 @@ export default function App() {
     setProgress({ stage: "parsing", completed: 0, total: 0, invoice: null });
     setLoading(true);
     try {
-      const res = await classifyRaw(text, handleProgress);
+      const res = await classifyRaw(text, trade, handleProgress);
       setResult(res);
+      resetTrade();
       if (res.warning) setWarning(res.warning);
     } catch (e) {
       setError(humanizeError(e));
@@ -112,6 +160,9 @@ export default function App() {
       : `${fmt(all)} tokens (${fmt(inn)} ↑ entrada / ${fmt(outt)} ↓ salida)`;
     return { in: inn, out: outt, all, label };
   }, [result, currentLang]);
+
+  const countryName = (code: string) =>
+    countryOptions.find((country) => country.code === code)?.name ?? code;
 
   return (
     <div className="min-h-full">
@@ -155,6 +206,79 @@ export default function App() {
 
       <main className="mx-auto max-w-5xl px-4 py-8">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <fieldset disabled={loading} className="mb-6 rounded-xl border border-slate-200 p-4">
+            <legend className="px-1 text-sm font-semibold text-slate-800">
+              {dict.trade.title}
+            </legend>
+            <p className="mb-4 text-xs text-slate-500">{dict.trade.help}</p>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <fieldset>
+                <legend className="mb-2 text-xs font-medium text-slate-600">
+                  {dict.trade.operation}
+                </legend>
+                <div className="flex gap-2">
+                  {(["import", "export"] as const).map((mode) => (
+                    <label
+                      key={mode}
+                      className={[
+                        "flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm",
+                        tradeMode === mode
+                          ? "border-blue-500 bg-blue-50 text-blue-800"
+                          : "border-slate-300 text-slate-600 hover:bg-slate-50",
+                      ].join(" ")}
+                    >
+                      <input
+                        type="radio"
+                        name="trade_mode"
+                        value={mode}
+                        checked={tradeMode === mode}
+                        onChange={() => setTradeMode(mode)}
+                        required
+                        className="h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      {mode === "import" ? dict.trade.import : dict.trade.export}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <label className="block">
+                <span className="mb-2 block text-xs font-medium text-slate-600">
+                  {dict.trade.originCountry}
+                </span>
+                <select
+                  required
+                  value={originCountry}
+                  onChange={(e) => setOriginCountry(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                >
+                  <option value="">{dict.trade.selectCountry}</option>
+                  {countryOptions.map((country) => (
+                    <option key={country.code} value={country.code}>
+                      {country.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-2 block text-xs font-medium text-slate-600">
+                  {dict.trade.dispatchCountry}
+                </span>
+                <select
+                  required
+                  value={dispatchCountry}
+                  onChange={(e) => setDispatchCountry(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                >
+                  <option value="">{dict.trade.selectCountry}</option>
+                  {countryOptions.map((country) => (
+                    <option key={country.code} value={country.code}>
+                      {country.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </fieldset>
           <div className="mb-4 flex border-b border-slate-200">
             {(["upload", "paste"] as const).map((id) => (
               <button
@@ -173,9 +297,17 @@ export default function App() {
           </div>
 
           {tab === "upload" ? (
-            <InvoiceUpload loading={loading} onSubmit={handleFile} />
+            <InvoiceUpload
+              loading={loading}
+              canSubmit={trade !== null}
+              onSubmit={handleFile}
+            />
           ) : (
-            <TextInput loading={loading} onSubmit={handleText} />
+            <TextInput
+              loading={loading}
+              canSubmit={trade !== null}
+              onSubmit={handleText}
+            />
           )}
         </div>
 
@@ -223,6 +355,22 @@ export default function App() {
                   : ""}
               </span>
             </h2>
+            <div className="mb-3 flex flex-wrap gap-x-6 gap-y-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              <span>
+                <strong>{dict.trade.operation}:</strong>{" "}
+                {result.trade.trade_mode === "import"
+                  ? dict.trade.import
+                  : dict.trade.export}
+              </span>
+              <span>
+                <strong>{dict.trade.originCountry}:</strong>{" "}
+                {countryName(result.trade.origin_country)}
+              </span>
+              <span>
+                <strong>{dict.trade.dispatchCountry}:</strong>{" "}
+                {countryName(result.trade.dispatch_country)}
+              </span>
+            </div>
             {(result.items.length > 0 || !loading) && <ResultTable items={result.items} />}
           </section>
         )}

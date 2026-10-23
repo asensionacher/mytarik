@@ -118,8 +118,11 @@ class TariffAIClient:
         self,
         description: str,
         language: ResponseLanguage = "en",
+        trade: dict[str, Any] | None = None,
     ) -> ClassifyResponse:
         payload: dict = {"description": description, "language": language}
+        if trade is not None:
+            payload["trade"] = trade
         async with asyncio.timeout(self.timeout):
             resp = await self.client.post("/classify", json=payload)
             resp.raise_for_status()
@@ -129,6 +132,7 @@ class TariffAIClient:
         self,
         descriptions: list[str],
         language: ResponseLanguage = "en",
+        trade: dict[str, Any] | None = None,
     ) -> list[ClassifyResponse]:
         if not descriptions:
             return []
@@ -140,6 +144,8 @@ class TariffAIClient:
             for start in range(0, len(descriptions), page_size):
                 chunk = descriptions[start : start + page_size]
                 payload: dict = {"descriptions": chunk, "language": language}
+                if trade is not None:
+                    payload["trade"] = trade
                 resp = await self.client.post("/classify/batch", json=payload)
                 resp.raise_for_status()
                 for item in resp.json():
@@ -148,6 +154,7 @@ class TariffAIClient:
 
     async def classify_progress(
         self, descriptions: list[str], language: ResponseLanguage = "en",
+        trade: dict[str, Any] | None = None,
     ) -> AsyncIterator[tuple[int, ClassifyResponse]]:
         groups: dict[str, list[int]] = {}
         for index, description in enumerate(descriptions):
@@ -159,7 +166,9 @@ class TariffAIClient:
             entry = next(work, None)
             if entry is not None:
                 description, indices = entry
-                pending[asyncio.create_task(self.classify_one(description, language=language))] = indices
+                pending[asyncio.create_task(self.classify_one(
+                    description, language=language, trade=trade,
+                ))] = indices
 
         try:
             async with asyncio.timeout(self.timeout):

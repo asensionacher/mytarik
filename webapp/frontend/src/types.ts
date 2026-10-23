@@ -59,12 +59,21 @@ export interface InvoiceItem {
   classification: ClassifyResponse;
 }
 
+export type TradeMode = "import" | "export";
+
+export interface TradeDetails {
+  trade_mode: TradeMode;
+  origin_country: string;
+  dispatch_country: string;
+}
+
 export interface InvoiceUploadResponse {
   filename: string;
   source: "pdf" | "text" | "image" | "raw";
   pages?: number;
   items_count: number;
   items: InvoiceItem[];
+  trade: TradeDetails;
   warning?: string;
 }
 
