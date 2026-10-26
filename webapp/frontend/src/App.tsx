@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ApiError, classifyRaw, fetchHealth, uploadInvoice } from "./api";
+import { ApiError, answerClarification, classifyRaw, fetchHealth, uploadInvoice } from "./api";
 import { InvoiceUpload } from "./components/InvoiceUpload";
 import { TextInput } from "./components/TextInput";
 import { ResultTable } from "./components/ResultTable";
@@ -16,6 +16,7 @@ import type {
   InvoiceUploadResponse,
   TradeDetails,
   TradeMode,
+  ClarificationAnswer,
 } from "./types";
 
 type Tab = "upload" | "paste";
@@ -138,6 +139,27 @@ export default function App() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleAnswer(index: number, answers: ClarificationAnswer[]) {
+    if (!result || loading) throw new Error(dict.progress.stages.classifying);
+    const invoice = result;
+    const item = invoice.items[index];
+    const response = await answerClarification(item.description, invoice.trade, answers);
+    if (response.status === "error" || !response.result) {
+      throw new Error(response.error ?? dict.errors.submit);
+    }
+    const previous = item.classification.result;
+    if (previous) {
+      response.result.prompt_tokens += previous.prompt_tokens;
+      response.result.output_tokens += previous.output_tokens;
+      response.result.total_tokens += previous.total_tokens;
+    }
+    setResult((current) => !current || current.items[index] !== item ? current : {
+      ...current,
+      items: current.items.map((entry, position) =>
+        position === index ? { ...entry, classification: response } : entry),
+    });
   }
 
   // Suma de tokens consumidos por toda la factura
@@ -371,7 +393,9 @@ export default function App() {
                 {countryName(result.trade.dispatch_country)}
               </span>
             </div>
-            {(result.items.length > 0 || !loading) && <ResultTable items={result.items} />}
+            {(result.items.length > 0 || !loading) && (
+              <ResultTable items={result.items} onAnswer={handleAnswer} disabled={loading} />
+            )}
           </section>
         )}
       </main>

@@ -1,6 +1,7 @@
 import type {
   ClassificationEvent, ClassificationProgress, HealthResponse, InvoiceItem,
   InvoiceUploadResponse, TradeDetails,
+  ClarificationAnswer, ClassifyResponse,
 } from "./types";
 import { getLang } from "./i18n/strings";
 
@@ -76,6 +77,21 @@ export async function classifyRaw(
   });
   if (onProgress) return readProgress(res, onProgress);
   return jsonOrThrow<InvoiceUploadResponse>(res);
+}
+
+export async function answerClarification(
+  description: string,
+  trade: TradeDetails,
+  clarificationAnswers: ClarificationAnswer[],
+): Promise<ClassifyResponse> {
+  const res = await fetch("/api/classify", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      description, trade, language: getLang(), clarification_answers: clarificationAnswers,
+    }),
+  });
+  return jsonOrThrow<ClassifyResponse>(res);
 }
 
 async function readProgress(

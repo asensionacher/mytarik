@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { t } from "../i18n/strings";
-import type { ClassificationResult, InvoiceItem } from "../types";
+import type { ClassificationResult, InvoiceItem, ClarificationAnswer } from "../types";
 import { DetailPanel } from "./DetailPanel";
+import { ClarificationPanel } from "./ClarificationPanel";
 
 interface Props {
   items: InvoiceItem[];
+  onAnswer: (index: number, answers: ClarificationAnswer[]) => Promise<void>;
+  disabled?: boolean;
 }
 
 interface CodeReview {
@@ -22,7 +25,7 @@ export function createCodeReview(code: string, suggestedCode: string | null): Co
 
 function confidenceColor(c: number): string {
   if (c >= 0.85) return "bg-emerald-100 text-emerald-800";
-  if (c >= 0.7) return "bg-amber-100 text-amber-800";
+  if (c >= 0.75) return "bg-amber-100 text-amber-800";
   return "bg-rose-100 text-rose-800";
 }
 
@@ -32,7 +35,7 @@ function statusBadge(status: "classified" | "ambiguous" | "error"): string {
   return "bg-rose-100 text-rose-800";
 }
 
-export function ResultTable({ items }: Props) {
+export function ResultTable({ items, onAnswer, disabled = false }: Props) {
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const [reviews, setReviews] = useState<Record<number, CodeReview>>({});
   const s = t().results;
@@ -116,6 +119,11 @@ export function ResultTable({ items }: Props) {
                 onSave={(newCode) => saveCode(lineIndex, newCode, suggestedCode)}
                 onReset={() => resetCode(lineIndex)}
                 onToggle={() => setOpenIdx(open ? null : lineIndex)}
+                onAnswer={async (answers) => {
+                  await onAnswer(idx, answers);
+                  resetCode(lineIndex);
+                }}
+                disabled={disabled}
               />
             );
           })}
@@ -142,12 +150,14 @@ interface RowProps {
   onSave: (code: string) => void;
   onReset: () => void;
   onToggle: () => void;
+  onAnswer: (answers: ClarificationAnswer[]) => Promise<void>;
+  disabled: boolean;
 }
 
 function FragmentRow(props: RowProps) {
   const {
     idx, it, result, open, status, code, suggestedCode, review, hsDesc, conf,
-    statusColors, confidenceColors, onAccept, onSave, onReset, onToggle,
+    statusColors, confidenceColors, onAccept, onSave, onReset, onToggle, onAnswer, disabled,
   } = props;
   const s = t().results;
   const [editing, setEditing] = useState(false);
@@ -233,7 +243,7 @@ function FragmentRow(props: RowProps) {
             </form>
           ) : (
             <div className="mt-2 flex flex-wrap gap-2">
-              {!review && suggestedCode && isValidHsCode(suggestedCode) && (
+              {!review && !result?.clarification_question && suggestedCode && isValidHsCode(suggestedCode) && (
                 <button
                   type="button"
                   onClick={onAccept}
@@ -274,6 +284,7 @@ function FragmentRow(props: RowProps) {
           )}
         </td>
         <td className="px-3 py-2">
+          {result?.clarification_question && <p className="mb-1 text-xs text-amber-800">{t().clarification.pending}</p>}
           <div className="flex flex-wrap items-center gap-1">
             {review?.changed ? (
               <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
@@ -304,7 +315,7 @@ function FragmentRow(props: RowProps) {
           </button>
         </td>
       </tr>
-      {open && (
+      {(open || result?.clarification_question || result?.needs_human_review) && (
         <tr className="bg-slate-50/50">
           <td colSpan={7} className="px-6 py-4">
             <div className="mb-2 text-xs uppercase tracking-wide text-slate-400">
@@ -315,7 +326,10 @@ function FragmentRow(props: RowProps) {
                 {s.originalProposal}
               </div>
             )}
-            <DetailPanel response={it.classification} />
+            {result && (result.clarification_question || result.needs_human_review || result.clarification_answers?.length > 0) && (
+              <ClarificationPanel result={result} onAnswer={onAnswer} disabled={disabled} />
+            )}
+            {open && <DetailPanel response={it.classification} />}
           </td>
         </tr>
       )}

@@ -33,6 +33,53 @@ def test_json_endpoints_reject_model_and_provider_overrides():
                     assert response.status_code == 422
 
 
+def test_clarification_history_and_question_survive_backend_proxy(monkeypatch):
+    answers = [{"question": "Material?", "answer": "Cotton"}]
+    question = {"question": "Construction?", "options": ["Knitted", "Woven"]}
+    requests = []
+
+    def handle(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(200, json={
+            "status": "ambiguous", "result": {
+                "input_text": "shirts", "confidence": 0.7,
+                "clarification_answers": answers, "clarification_question": question,
+                "reasoning_triggers": ["short_description"],
+            },
+        })
+
+    class ProxyClient(TariffAIClient):
+        async def __aenter__(self):
+            self._client = httpx.AsyncClient(
+                base_url="http://tariffai", transport=httpx.MockTransport(handle),
+            )
+            return self
+
+    monkeypatch.setattr(main, "make_client", ProxyClient)
+    payload = {
+        "description": "shirts", "language": "es", "trade": TRADE,
+        "clarification_answers": answers,
+    }
+    response = TestClient(main.app).post("/api/classify", json=payload)
+    assert response.status_code == 200
+    assert requests == [payload]
+    result = response.json()["result"]
+    assert result["clarification_question"] == question
+    assert result["clarification_answers"] == answers
+    assert result["reasoning_triggers"] == ["short_description"]
+
+
+@pytest.mark.parametrize("answers", [
+    [{"question": "Q", "answer": "A"}] * 4,
+    [{"question": "Q", "answer": " "}],
+])
+def test_clarification_limit_and_nonempty_answers_are_validated(answers):
+    response = TestClient(main.app).post("/api/classify", json={
+        "description": "shirts", "clarification_answers": answers,
+    })
+    assert response.status_code == 422
+
+
 @pytest.mark.parametrize("path", ["/api/classify/raw", "/api/invoice/upload"])
 def test_invoice_routes_require_trade_details(path):
     client = TestClient(main.app)

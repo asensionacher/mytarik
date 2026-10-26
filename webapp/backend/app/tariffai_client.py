@@ -17,13 +17,25 @@ from collections.abc import AsyncIterator
 from typing import Any, Literal
 
 import httpx
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 ResponseLanguage = Literal["es", "en"]
+
+
+class ClarificationAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    question: str = Field(..., min_length=1, max_length=500)
+    answer: str = Field(..., min_length=1, max_length=2000)
+
+
+class ClarificationQuestion(BaseModel):
+    question: str
+    options: list[str] = Field(default_factory=list, max_length=6)
 
 
 # ── Modelos espejo (subset suficiente para nuestro uso) ──────────────────
@@ -65,6 +77,10 @@ def _build_models():
         output_tokens: int = 0
         total_tokens: int = 0
         thinking: str | None = None
+        reasoning_triggers: list[str] = Field(default_factory=list)
+        clarification_question: ClarificationQuestion | None = None
+        clarification_answers: list[ClarificationAnswer] = Field(default_factory=list, max_length=3)
+        needs_human_review: bool = False
 
     class ClassifyResponse(BaseModel):
         status: Literal["classified", "ambiguous", "error"]
@@ -119,10 +135,13 @@ class TariffAIClient:
         description: str,
         language: ResponseLanguage = "en",
         trade: dict[str, Any] | None = None,
+        clarification_answers: list[dict[str, str]] | None = None,
     ) -> ClassifyResponse:
         payload: dict = {"description": description, "language": language}
         if trade is not None:
             payload["trade"] = trade
+        if clarification_answers:
+            payload["clarification_answers"] = clarification_answers
         async with asyncio.timeout(self.timeout):
             resp = await self.client.post("/classify", json=payload)
             resp.raise_for_status()

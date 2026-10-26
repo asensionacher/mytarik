@@ -50,6 +50,20 @@ class ClassificationReasoning(BaseModel):
     key_factors: list[str] = Field(default_factory=list, description="Key product attributes that drove the decision")
 
 
+class ClarificationAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    question: str = Field(..., min_length=1, max_length=500)
+    answer: str = Field(..., min_length=1, max_length=2000)
+
+
+class ClarificationQuestion(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    question: str = Field(..., min_length=1, max_length=500)
+    options: list[str] = Field(default_factory=list, max_length=6)
+
+
 class ClassificationResult(BaseModel):
     """Final classification output for a single cargo description."""
     input_text: str = Field(..., description="Original raw cargo description")
@@ -68,7 +82,11 @@ class ClassificationResult(BaseModel):
         default_factory=list,
         description="Top alternative candidates with trade-offs (for ambiguous cases)"
     )
-    is_ambiguous: bool = Field(default=False, description="True if confidence < threshold")
+    is_ambiguous: bool = Field(default=False, description="Low confidence, missing code or unresolved product questions")
+    reasoning_triggers: list[str] = Field(default_factory=list)
+    clarification_question: ClarificationQuestion | None = None
+    clarification_answers: list[ClarificationAnswer] = Field(default_factory=list, max_length=3)
+    needs_human_review: bool = False
     processing_time_ms: float = Field(default=0.0, description="Total processing time in milliseconds")
     # Contadores de tokens devueltos por el proveedor LLM.
     # Si la API no los expone, quedan en 0.
@@ -84,6 +102,7 @@ class ClassifyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     language: ResponseLanguage = Field(default="en", description="Language for generated descriptions and reasoning")
     trade: TradeContext | None = Field(default=None, description="Commercial context for the classification")
+    clarification_answers: list[ClarificationAnswer] = Field(default_factory=list, max_length=3)
 
     description: str = Field(
         ...,

@@ -3,18 +3,10 @@ LangGraph Classification Pipeline
 
 Orchestrates the 3-stage TariffAI pipeline as a LangGraph state machine:
 
-    START → preprocess → retrieve_candidates → classify → END
-                                                  │
-                                         (if confidence < 0.7)
-                                                  │
-                                                  ▼
-                                          ambiguous_output
-                                        (top-3 with trade-offs)
+    START → preprocess → retrieve → classify → [disambiguation review] → END
 
-The state machine provides:
-- Clear node boundaries for debugging and logging
-- Checkpointing support for auditing (prepare for Week 6)
-- Clean separation of concerns (no LLM in stages 1-2)
+Review low confidence, close retrieval candidates and short descriptions.
+Human answers remain request-local and resume catalogue-grounded classification.
 """
 
 import time
@@ -25,8 +17,8 @@ from langgraph.graph import StateGraph, START, END
 from app.cargo_preprocessor import preprocess_cargo_text
 from app.hs_retriever import retrieve_candidates
 from app.llm_classifier import classify_with_llm
-from app.schemas import HSCandidate, ClassificationResult, ResponseLanguage, TradeContext
-from app.config import CONFIDENCE_THRESHOLD
+from app.schemas import HSCandidate, ClassificationResult, ResponseLanguage, TradeContext, ClarificationAnswer
+from app.reasoning import reasoning_triggers
 
 
 # ── LangGraph State ─────────────────────────────────────────────────────
@@ -37,6 +29,7 @@ class ClassificationState(TypedDict):
     raw_text: str
     language: ResponseLanguage
     trade: dict | None
+    clarification_answers: list[dict]
 
     # Stage 1 output
     cleaned_text: str
@@ -74,7 +67,9 @@ def retrieve_node(state: ClassificationState) -> dict:
     No LLM involved.
     """
     cleaned = state["cleaned_text"]
-    candidates = retrieve_candidates(cleaned)
+    answers = state.get("clarification_answers", [])
+    query = cleaned + "".join(f"\n{a['question']}: {a['answer']}" for a in answers)
+    candidates = retrieve_candidates(query, top_k=25) if answers else retrieve_candidates(query)
 
     # Serialize candidates for LangGraph state
     candidates_dicts = [c.model_dump() for c in candidates]
@@ -83,8 +78,7 @@ def retrieve_node(state: ClassificationState) -> dict:
 
 def classify_node(state: ClassificationState) -> dict:
     """
-    Stage 3: LLM classification.
-    Single LLM call with cleaned text + candidates → final code + reasoning.
+    Stage 3: Classify, or resume a review using the human's answers.
     """
     cleaned = state["cleaned_text"]
     raw = state["raw_text"]
@@ -93,13 +87,19 @@ def classify_node(state: ClassificationState) -> dict:
     candidates = [HSCandidate(**c) for c in state["candidates"]]
     trade_data = state.get("trade")
     trade = TradeContext(**trade_data) if trade_data else None
+    answers = [ClarificationAnswer(**a) for a in state.get("clarification_answers", [])]
 
     result = classify_with_llm(
         cleaned, candidates,
         raw_text=raw,
         language=state["language"],
         trade=trade,
+        clarification_answers=answers,
+        review=bool(answers),
     )
+    result.reasoning_triggers = reasoning_triggers(cleaned, candidates, result)
+    if state.get("clarification_answers"):
+        result.reasoning_triggers.append("human_answers")
 
     # Calculate total processing time
     elapsed = (time.time() - state.get("start_time", time.time())) * 1000
@@ -112,28 +112,33 @@ def classify_node(state: ClassificationState) -> dict:
 
 def check_ambiguity(state: ClassificationState) -> str:
     """
-    Route based on confidence: if ambiguous, go to the ambiguous output
-    node that formats the top-3 with trade-offs.
+    Start a second review only for initial classifications requiring it.
     """
     result = state.get("result")
-    if result and result.get("is_ambiguous", False):
+    if result and result.get("reasoning_triggers") and not state.get("clarification_answers"):
         return "ambiguous"
     return "done"
 
 
 def ambiguous_output_node(state: ClassificationState) -> dict:
-    """
-    For ambiguous cases (confidence < threshold), ensure the result
-    prominently surfaces the alternative codes with trade-off explanations.
-    The result already contains alternatives from the LLM — this node
-    is a hook for future enhancements (e.g., triggering human review).
-    """
-    # In the current implementation, the LLM already provides alternatives.
-    # This node exists for:
-    # 1. Future Week 6 integration: queue for human-in-the-loop review
-    # 2. Logging ambiguous cases for model improvement
-    # 3. Potential second LLM call with stricter disambiguation prompt
-    return {}
+    """Re-evaluate a broader set of entries from the CSV-backed catalogue."""
+    answers = [ClarificationAnswer(**a) for a in state.get("clarification_answers", [])]
+    query = state["cleaned_text"] + "".join(f"\n{a.question}: {a.answer}" for a in answers)
+    expanded = retrieve_candidates(query, top_k=25)
+    candidates = {c["code"]: HSCandidate(**c) for c in state["candidates"]}
+    candidates.update({c.code: c for c in expanded})
+    previous = ClassificationResult(**state["result"])
+    trade = TradeContext(**state["trade"]) if state.get("trade") else None
+    result = classify_with_llm(
+        state["cleaned_text"], list(candidates.values()),
+        raw_text=state["raw_text"], language=state["language"], trade=trade,
+        clarification_answers=answers, review=True,
+    )
+    result.reasoning_triggers = previous.reasoning_triggers
+    for field in ("prompt_tokens", "output_tokens", "total_tokens"):
+        setattr(result, field, getattr(result, field) + getattr(previous, field))
+    result.processing_time_ms = (time.time() - state["start_time"]) * 1000
+    return {"result": result.model_dump(), "processing_time_ms": result.processing_time_ms}
 
 
 # ── Build the Graph ─────────────────────────────────────────────────────
@@ -187,6 +192,7 @@ def classify_cargo(
     raw_text: str,
     language: ResponseLanguage = "en",
     trade: TradeContext | None = None,
+    clarification_answers: list[ClarificationAnswer] | None = None,
 ) -> ClassificationResult:
     """
     Main entry point: classify a raw cargo description.
@@ -199,6 +205,7 @@ def classify_cargo(
         "raw_text": raw_text,
         "language": language,
         "trade": trade.model_dump() if trade else None,
+        "clarification_answers": [a.model_dump() for a in clarification_answers or []],
         "cleaned_text": "",
         "candidates": [],
         "result": None,

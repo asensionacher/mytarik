@@ -43,6 +43,15 @@ export interface ClassificationResult {
   output_tokens: number;
   total_tokens: number;
   thinking: string | null;
+  reasoning_triggers: string[];
+  clarification_question: { question: string; options: string[] } | null;
+  clarification_answers: ClarificationAnswer[];
+  needs_human_review: boolean;
+}
+
+export interface ClarificationAnswer {
+  question: string;
+  answer: string;
 }
 
 export type ClassifyStatus = "classified" | "ambiguous" | "error";

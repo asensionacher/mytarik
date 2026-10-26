@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import ts from "typescript";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
 function moduleURL(source) {
   const { outputText } = ts.transpileModule(source, {
@@ -25,12 +27,20 @@ const stringsURL = moduleURL(await readFile(new URL("../src/i18n/strings.ts", im
 const { getLang, setLang } = await import(stringsURL);
 const source = (await readFile(new URL("../src/api.ts", import.meta.url), "utf8"))
   .replace('from "./i18n/strings"', `from "${stringsURL}"`);
-const { ApiError, classifyRaw, uploadInvoice } = await import(moduleURL(source));
+const { ApiError, answerClarification, classifyRaw, uploadInvoice } = await import(moduleURL(source));
 
 const reactURL = moduleURL(
   "export const useState = () => []; export default { createElement: (...args) => args };",
 );
 const detailPanelURL = moduleURL("export function DetailPanel() { return null; }");
+const clarificationPanelURL = moduleURL("export function ClarificationPanel() { return null; }");
+const clarificationSource = (await readFile(
+  new URL("../src/components/ClarificationPanel.tsx", import.meta.url), "utf8",
+))
+  .replace('import { useId, useState } from "react";', 'import React, { useId, useState } from "react";')
+  .replace('from "react"', `from "${import.meta.resolve("react")}"`)
+  .replace('from "../i18n/strings"', `from "${stringsURL}"`);
+const { ClarificationPanel } = await import(componentModuleURL(clarificationSource));
 const resultTableSource = (await readFile(
   new URL("../src/components/ResultTable.tsx", import.meta.url), "utf8",
 ))
@@ -40,7 +50,8 @@ const resultTableSource = (await readFile(
   )
   .replace('from "react"', `from "${reactURL}"`)
   .replace('from "../i18n/strings"', `from "${stringsURL}"`)
-  .replace('from "./DetailPanel"', `from "${detailPanelURL}"`);
+  .replace('from "./DetailPanel"', `from "${detailPanelURL}"`)
+  .replace('from "./ClarificationPanel"', `from "${clarificationPanelURL}"`);
 const { createCodeReview, isValidHsCode } = await import(componentModuleURL(resultTableSource));
 
 const trade = { trade_mode: "import", origin_country: "ES", dispatch_country: "CN" };
@@ -56,6 +67,54 @@ const item = (index) => ({
 const encode = (event) => new TextEncoder().encode(JSON.stringify(event) + "\n");
 const response = (body) => new Response(body, {
   headers: { "content-type": "application/x-ndjson" },
+});
+
+test("sends product clarification history with original description, language and trade", async (t) => {
+  setLang("es");
+  const answers = [{ question: "¿Material?", answer: "Algodón" }];
+  const classification = {
+    status: "ambiguous",
+    result: {
+      clarification_question: { question: "¿Tejido?", options: ["Punto", "Plano"] },
+      clarification_answers: answers,
+    },
+    error: null,
+  };
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    assert.equal(url, "/api/classify");
+    assert.deepEqual(JSON.parse(options.body), {
+      description: "Camisas", language: "es", trade, clarification_answers: answers,
+    });
+    return Response.json(classification);
+  });
+  assert.deepEqual(await answerClarification("Camisas", trade, answers), classification);
+  setLang("en");
+});
+
+test("shows answer buttons and a free-text input, but never a fourth question", () => {
+  setLang("es");
+  const result = {
+    clarification_answers: [{ question: "¿Material?", answer: "Algodón" }],
+    clarification_question: { question: "¿Construcción?", options: ["Punto", "Plano"] },
+  };
+  const markup = renderToStaticMarkup(React.createElement(ClarificationPanel, {
+    result, onAnswer: async () => {},
+  }));
+  assert.match(markup, /Pregunta 2 de un máximo de 3/);
+  assert.match(markup, /type="button"[^>]*>Punto/);
+  assert.match(markup, /type="button"[^>]*>Plano/);
+  assert.match(markup, /<input/);
+  assert.match(markup, /Algodón/);
+  const exhausted = renderToStaticMarkup(React.createElement(ClarificationPanel, {
+    result: {
+      ...result, clarification_answers: [...result.clarification_answers, ...result.clarification_answers,
+        ...result.clarification_answers], needs_human_review: true,
+    },
+    onAnswer: async () => {},
+  }));
+  assert.doesNotMatch(exhausted, /<input|<button/);
+  assert.match(exhausted, /revisión humana/);
+  setLang("en");
 });
 
 test("decodes split UTF-8 and shows out-of-order completions in original order", async (t) => {

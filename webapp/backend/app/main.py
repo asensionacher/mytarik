@@ -23,7 +23,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
 from app.invoice_parser import ParsedInvoice, parse_invoice, parse_text
-from app.tariffai_client import ResponseLanguage, TariffAIClient, make_client
+from app.tariffai_client import ClarificationAnswer, ResponseLanguage, TariffAIClient, make_client
 
 logging.basicConfig(
     level=settings.log_level.upper(),
@@ -65,6 +65,7 @@ class ClassifyBody(BaseModel):
     description: str = Field(..., min_length=3, description="Descripción de una línea de factura")
     language: ResponseLanguage = "en"
     trade: TradeDetails | None = None
+    clarification_answers: list[ClarificationAnswer] = Field(default_factory=list, max_length=3)
 
 class RawBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -256,10 +257,15 @@ async def classify_single(body: ClassifyBody) -> dict[str, Any]:
     """Clasifica una única descripción (atajo para pruebas)."""
     try:
         async with make_client() as client:
+            clarification = (
+                {"clarification_answers": [a.model_dump() for a in body.clarification_answers]}
+                if body.clarification_answers else {}
+            )
             response = await client.classify_one(
                 body.description,
                 language=body.language,
                 trade=body.trade.model_dump() if body.trade else None,
+                **clarification,
             )
     except (httpx.TimeoutException, TimeoutError) as exc:
         logger.exception("Tiempo de espera agotado clasificando la descripción")

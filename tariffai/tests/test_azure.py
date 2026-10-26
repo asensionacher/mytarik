@@ -172,8 +172,8 @@ def test_classification_routes_use_foundry_and_preserve_result(monkeypatch):
         assert result["status"] == "classified"
         assert result["result"]["primary_code"] == "610510"
         assert result["result"]["hierarchy"]["heading"]["code"] == "6105"
-        assert result["result"]["total_tokens"] == 30
-    assert provider.complete.call_count == 2
+        assert result["result"]["total_tokens"] == 60
+    assert provider.complete.call_count == 4
     assert set(provider.complete.call_args.kwargs) == {"system", "user"}
 
 
@@ -206,7 +206,7 @@ def test_trade_context_reaches_the_classification_prompt(monkeypatch):
         "descriptions": ["cotton shirts"], "trade": trade.model_dump(),
     })
     assert single.status_code == batch.status_code == 200
-    assert provider.complete.call_count == 2
+    assert provider.complete.call_count == 4
     for call in provider.complete.call_args_list:
         user_prompt = call.kwargs["user"]
         assert "Operation: import" in user_prompt
@@ -264,7 +264,8 @@ def test_response_language_flows_through_routes_graph_and_foundry(monkeypatch, l
         "chapter": "Prendas de punto" if spanish else "Knitted apparel",
         "heading": "Camisas" if spanish else "Shirts",
     }
-    monkeypatch.setattr(graph, "retrieve_candidates", Mock(return_value=[candidate]))
+    alternative = candidate.model_copy(update={"code": "610590", "retrieval_score": 0.8})
+    monkeypatch.setattr(graph, "retrieve_candidates", Mock(return_value=[candidate, alternative]))
     provider = Mock()
     provider.complete.return_value = llm_provider.LLMResponse(text=json.dumps({
         "primary_code": "610510", "primary_description": primary, "confidence": 0.95,

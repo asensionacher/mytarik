@@ -64,7 +64,8 @@ def classify_endpoint(req: ClassifyRequest):
     The pipeline:
     1. Preprocesses the raw text (regex, no LLM)
     2. Retrieves top candidates via hybrid search (Qdrant + BM25, no LLM)
-    3. Makes ONE LLM call to select the best code with reasoning
+    3. Selects the best code with the LLM and reviews uncertain cases
+    4. Asks up to three product questions if decisive attributes are missing
 
     Returns the classification result including:
     - The recommended HS code
@@ -75,7 +76,10 @@ def classify_endpoint(req: ClassifyRequest):
     Uses the server-configured Azure Foundry deployment only.
     """
     try:
-        result = classify_cargo(req.description, language=req.language, trade=req.trade)
+        result = classify_cargo(
+            req.description, language=req.language, trade=req.trade,
+            clarification_answers=req.clarification_answers,
+        )
         status = "ambiguous" if result.is_ambiguous else "classified"
         return ClassifyResponse(status=status, result=result)
     except Exception as e:

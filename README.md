@@ -168,6 +168,29 @@ razonamiento. La mejora afecta a facturas con varias descripciones; una sola
 línea sigue dependiendo de la latencia de Foundry. Si el proceso se interrumpe,
 los resultados ya recibidos permanecen visibles.
 
+### Desambiguación con el usuario
+
+Se hace una segunda evaluación con IA si la confianza es **inferior al 75 %**,
+los dos mejores candidatos tienen una diferencia de puntuación **menor o igual
+a 0,001** (0,1 puntos porcentuales), o la descripción limpiada tiene **menos de
+4 palabras útiles** (sin números ni artículos/preposiciones habituales en español
+e inglés). Las puntuaciones de recuperación sirven para ordenar candidatos;
+no son probabilidades de clasificación.
+
+La evaluación amplía la búsqueda a 25 candidatos del catálogo HS cargado desde
+el CSV en Qdrant y compara sus características y alternativas. Si faltan datos,
+la tabla muestra una pregunta con **botones y texto libre**. Las preguntas son
+adaptativas, de una en una, con un máximo de **3 por producto**. Cada respuesta
+repite la búsqueda con los datos nuevos y conserva la descripción original y el
+contexto comercial. Si persisten dudas tras la tercera respuesta, el resultado
+queda ambiguo y marcado para revisión humana; no se fuerza una clasificación.
+
+Las respuestas viajan en `clarification_answers: [{"question": "...", "answer":
+"..."}]` a `/api/classify` (y `/classify` en TariffAI), junto con `description`,
+`language` y `trade`. La respuesta incluye `clarification_question` (o `null`),
+el historial, `reasoning_triggers` y `needs_human_review`. No hay almacenamiento
+de conversaciones: el historial permanece en el estado de la página.
+
 ## Formatos soportados en el upload
 
 - **PDF** (texto embebido): se extraen las tablas (`pdfplumber`) y se toma la columna de descripción.
