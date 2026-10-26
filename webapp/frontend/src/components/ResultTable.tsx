@@ -1,18 +1,17 @@
 import { useState } from "react";
 import { t } from "../i18n/strings";
-import type { ClassificationResult, InvoiceItem, ClarificationAnswer } from "../types";
+import type { ClassificationResult, InvoiceItem, ClarificationAnswer, CodeReview } from "../types";
 import { DetailPanel } from "./DetailPanel";
 import { ClarificationPanel } from "./ClarificationPanel";
 
+export type { CodeReview };
+
 interface Props {
   items: InvoiceItem[];
+  reviews: Record<number, CodeReview>;
+  onReview: (index: number, review: CodeReview | null) => void;
   onAnswer: (index: number, answers: ClarificationAnswer[]) => Promise<void>;
   disabled?: boolean;
-}
-
-interface CodeReview {
-  code: string;
-  changed: boolean;
 }
 
 export function isValidHsCode(code: string): boolean {
@@ -35,32 +34,23 @@ function statusBadge(status: "classified" | "ambiguous" | "error"): string {
   return "bg-rose-100 text-rose-800";
 }
 
-export function ResultTable({ items, onAnswer, disabled = false }: Props) {
+export function ResultTable({
+  items, reviews, onReview, onAnswer, disabled = false,
+}: Props) {
   const [openIdx, setOpenIdx] = useState<number | null>(null);
-  const [reviews, setReviews] = useState<Record<number, CodeReview>>({});
   const s = t().results;
 
   function acceptCode(index: number, code: string) {
     if (!isValidHsCode(code)) return;
-    setReviews((current) => ({
-      ...current,
-      [index]: createCodeReview(code, code),
-    }));
+    onReview(index, createCodeReview(code, code));
   }
 
   function saveCode(index: number, code: string, suggestedCode: string | null) {
-    setReviews((current) => ({
-      ...current,
-      [index]: createCodeReview(code, suggestedCode),
-    }));
+    onReview(index, createCodeReview(code, suggestedCode));
   }
 
   function resetCode(index: number) {
-    setReviews((current) => {
-      const next = { ...current };
-      delete next[index];
-      return next;
-    });
+    onReview(index, null);
   }
 
   if (!items.length) {

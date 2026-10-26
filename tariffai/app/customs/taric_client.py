@@ -42,7 +42,9 @@ from app.config import (
     UK_TARIFF_API_KEY,
     UK_TARIFF_API_URL,
 )
-from app.customs.cache import MeasureCache, cache_key
+from app.customs.cache import MeasureCache, cache_key, nomenclature_cache_key
+from app.customs.nomenclature import NomenclatureNode, build_candidates, collect_nodes
+from app.customs.schemas import TaricCandidate
 
 logger = logging.getLogger(__name__)
 
@@ -321,6 +323,20 @@ class Access2MarketsProvider:
             )
         return result
 
+    async def resolve_nomenclature(
+        self, hs_code: str, country: str
+    ) -> list[NomenclatureNode]:
+        """Nomenclatura por debajo de un código HS de 6 dígitos."""
+        payload = await self._get_json(
+            "/api/v2/nomenclature/productsByCode",
+            params={
+                "lang": SOURCE_LANGUAGE,
+                "code": hs_code,
+                "country": country,
+            },
+        )
+        return collect_nodes(payload)
+
     async def _get_json(
         self,
         path: str,
@@ -531,16 +547,70 @@ class TaricRealtimeClient:
 
         return QueryOutcome(available=False, warnings=warnings)
 
+    async def resolve_taric_codes(
+        self, hs_code: str, country: str
+    ) -> tuple[list[TaricCandidate], list[str]]:
+        """
+        Candidatos TARIC de 10 dígitos para un código HS de 6 dígitos.
+
+        La nomenclatura se cachea por día igual que las medidas: la nomenclatura
+        de la Unión cambia una vez al día.
+        """
+        self.ensure_ready()
+        key = nomenclature_cache_key(hs_code, country)
+        if self._cache is not None:
+            cached = self._cache.get(key)
+            if isinstance(cached, dict) and "candidates" in cached:
+                return (
+                    [TaricCandidate.model_validate(c) for c in cached["candidates"]],
+                    list(cached.get("warnings") or []),
+                )
+
+        warnings: list[str] = []
+        for provider in self._providers:
+            resolve = getattr(provider, "resolve_nomenclature", None)
+            if resolve is None:
+                continue
+            try:
+                nodes = await self._with_retry(
+                    lambda: resolve(hs_code, country), provider.name,
+                )
+            except ProviderError as exc:
+                logger.warning("Proveedor %s falló resolviendo la nomenclatura: %s", provider.name, exc)
+                warnings.append(f"{provider.name}: {exc}")
+                continue
+
+            candidates = build_candidates(nodes, hs_code)
+            if not any(candidate.exact for candidate in candidates):
+                warnings.append(
+                    f"La nomenclatura de {hs_code} no expone la subdivisión TARIC: "
+                    f"se propone {candidates[0].taric_code} como código inferido y "
+                    "conviene verificarlo."
+                )
+            if self._cache is not None:
+                self._cache.set(key, {
+                    "candidates": [c.model_dump() for c in candidates],
+                    "warnings": warnings,
+                })
+            return candidates, warnings
+
+        return [], warnings
+
     async def _fetch_with_retry(
         self, provider: TaricProvider, query: TaricQuery
     ) -> ProviderResult:
         """Reintentos con backoff exponencial y jitter."""
+        return await self._with_retry(
+            lambda: provider.fetch(query), provider.name,
+        )
+
+    async def _with_retry(self, call, provider_name: str):
         attempts = max(1, TARIC_HTTP_RETRIES)
         last_error: Exception | None = None
         for attempt in range(attempts):
             try:
                 async with self._semaphore:
-                    return await provider.fetch(query)
+                    return await call()
             except (ProviderError, httpx.HTTPError, asyncio.TimeoutError) as exc:
                 last_error = exc
                 if attempt == attempts - 1:
@@ -548,9 +618,9 @@ class TaricRealtimeClient:
                 delay = min(2 ** attempt, 8) + random.uniform(0, 0.5)
                 logger.warning(
                     "Reintento %s/%s tras fallo de %s: %s",
-                    attempt + 1, attempts, provider.name, exc,
+                    attempt + 1, attempts, provider_name, exc,
                 )
                 await asyncio.sleep(delay)
         raise ProviderError(
-            f"{provider.name} agotó {attempts} intentos: {last_error}"
+            f"{provider_name} agotó {attempts} intentos: {last_error}"
         ) from last_error

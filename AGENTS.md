@@ -45,7 +45,8 @@ docker compose up -d --build
 - Frontend types in `webapp/frontend/src/types.ts` mirror backend wire shapes. Update both sides and the relevant API tests when changing a contract.
 - UI strings live in `webapp/frontend/src/i18n/strings.ts`; `dict.es` and `dict.en` must retain the same shape. Add translations in both languages.
 - HS codes are 6 digits. The app may show an original suggestion, but user-accepted/manual codes are review state only; no endpoint persists the override.
-- The customs operation contract carries `operation_type`, `origin_country`, `destination_country`, `incoterm`, `language` and `items[]` with a 10-digit `taric_code`. It is strict (`extra="forbid"`) on both sides: `webapp/backend/app/customs_client.py` mirrors `tariffai/app/customs/schemas.py`.
+- The customs operation contract carries `operation_type`, `origin_country`, `destination_country`, `incoterm`, `language` and `items[]` with a `taric_code` of 6, 8 or 10 digits (10 is the expected one; 6/8 are the fallback when the EU nomenclature does not publish the subdivision, and the engine then reports the level it consulted in `provenance.queried_code`). It is strict (`extra="forbid"`) on both sides: `webapp/backend/app/customs_client.py` mirrors `tariffai/app/customs/schemas.py`.
+- HS classification returns 6 digits while the TARIC measures are defined on 10 digits. `POST /customs/resolve-taric-codes` (proxied as `/api/v1/customs/resolve-taric-codes`) expands the heading into its TARIC candidates; when several exist the declarante picks one, because the last digit changes the duty. The chosen code is user state, not a persisted override.
 - The customs cache key is `f"{taric_code}:{origin}:{destination}:{operation_type}:{date.today()}"`: the TARIC changes once a day, so a 24 h TTL is enough and the date rollover invalidates it.
 
 ## Operational gotchas

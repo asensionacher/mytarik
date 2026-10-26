@@ -193,6 +193,27 @@ de conversaciones: el historial permanece en el estado de la página.
 
 ## Motor de medidas aduaneras en tiempo real
 
+### Qué hacer después de aceptar el código HS
+
+1. **Aceptas (o corriges) el HS de cada línea** en la tabla. La revisión es
+   estado de sesión, no se persiste.
+2. **Pulsa "Evaluar medidas aduaneras"** bajo la tabla. La webapp pide a
+   TariffAI los códigos TARIC de 10 dígitos que cuelgan de cada HS de 6
+   dígitos (`POST /api/v1/customs/resolve-taric-codes`).
+3. **Eliges el TARIC** cuando hay varias subdivisiones posibles (por ejemplo
+   `610910` → `6109100010` "T-shirts" · `6109100090" "Other"): el último dígito
+   cambia el arancel, así que la decisión es del declarante. Si la nomenclatura
+   de la UE no expone la subdivisión, el campo queda editable y marcado como
+   *inferido*.
+4. **Opcionalmente**, indicas el valor en aduana y el peso neto de la línea
+   para que se pueda estimar el importe del arancel y la base del IVA.
+5. **"Calcular medidas"** devuelve, por línea, el arancel base, las
+   preferencias y su prueba de origen, los derechos de defensa comercial por
+   fabricante, los controles en frontera, la normativa especial, los códigos
+   "Y" y la estimación de impuestos.
+
+### El contrato
+
 `POST /api/v1/customs/evaluate-operation` determina, para cada partida ya
 clasificada, las **medidas aduaneras vigentes** que le aplican. No se descarga
 el TARIC: las medidas se consultan en tiempo real a la fuente oficial.
@@ -263,8 +284,16 @@ traduce los códigos crípticos a lenguaje aduanero. Los códigos `"Y"` que el
 modelo menciona y **no** existen en las medidas reales se descartan.
 
 El motor vive en `tariffai/app/customs/` y se expone allí como
-`POST /customs/evaluate`; el backend de la webapp lo publica en
-`/api/v1/customs/evaluate-operation` y no calcula nada.
+`POST /customs/evaluate` y `POST /customs/resolve-taric-codes`; el backend de
+la webapp los publica en `/api/v1/customs/evaluate-operation` y
+`/api/v1/customs/resolve-taric-codes` y no calcula nada.
+
+La nomenclatura que resuelve el HS de 6 dígitos en TARIC de 10 es la de
+Access2Markets (`api/v2/nomenclature/productsByCode`). No es completa: hay
+ramas sin subdivisión publicada. Cuando eso ocurre, el motor propone
+`{hs_code}0000` marcado como **inferido** y la UI lo deja editable; con un
+código de 6 u 8 dígitos el motor consulta el nivel superior y lo indica en
+`provenance.queried_code` y en los avisos de la respuesta.
 
 ## Formatos soportados en el upload
 
@@ -281,6 +310,7 @@ El motor vive en `tariffai/app/customs/` y se expone allí como
 | POST   | `/api/classify`            | `{"description": "..."}` → clasificación de una línea       |
 | POST   | `/api/classify/raw`        | Pega texto directo, mismo comportamiento que un `.txt`     |
 | POST   | `/api/v1/customs/evaluate-operation` | Contexto comercial + `items[]` ya clasificados → medidas aduaneras vigentes por partida |
+| POST   | `/api/v1/customs/resolve-taric-codes` | `{"hs_code": "610910", "country": "ES"}` → candidatos TARIC de 10 dígitos para un HS de 6 |
 
 El contexto comercial es **obligatorio** en las rutas de factura (`/api/invoice/upload`
 y `/api/classify/raw`): un solo contexto por factura, con `trade_mode`

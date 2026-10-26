@@ -14,8 +14,13 @@ import time
 
 from fastapi import APIRouter
 
-from app.customs.schemas import CustomsOperationRequest, CustomsOperationResponse
-from app.customs.service import evaluate_operation
+from app.customs.schemas import (
+    CustomsOperationRequest,
+    CustomsOperationResponse,
+    ResolveTaricCodesRequest,
+    ResolveTaricCodesResponse,
+)
+from app.customs.service import evaluate_operation, resolve_taric_codes
 
 logger = logging.getLogger(__name__)
 
@@ -46,3 +51,23 @@ async def evaluate(req: CustomsOperationRequest) -> CustomsOperationResponse:
         response.processing_time_ms,
     )
     return response
+
+
+@router.post("/resolve-taric-codes", response_model=ResolveTaricCodesResponse)
+async def resolve_taric(req: ResolveTaricCodesRequest) -> ResolveTaricCodesResponse:
+    """
+    Resuelve un código HS de 6 dígitos a sus códigos TARIC de 10 dígitos.
+
+    El motor de medidas trabaja con códigos TARIC de 10 dígitos; la nomenclatura
+    de la Unión publica la subdivisión completa. Cuando hay varios candidatos,
+    la elección es del declarante.
+    """
+    try:
+        return await resolve_taric_codes(req)
+    except Exception as exc:
+        logger.exception("Fallo resolviendo la nomenclatura de %s", req.hs_code)
+        return ResolveTaricCodesResponse(
+            hs_code=req.hs_code,
+            country=req.country,
+            warnings=[str(exc) or type(exc).__name__],
+        )

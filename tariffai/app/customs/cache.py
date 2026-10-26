@@ -46,6 +46,16 @@ def cache_key(
     return f"{taric_code}:{origin_country}:{destination_country}:{operation_type}:{day}"
 
 
+def nomenclature_cache_key(
+    hs_code: str,
+    country: str,
+    on_date: date | None = None,
+) -> str:
+    """Clave de caché diaria de la nomenclatura (6 dígitos → TARIC)."""
+    day = (on_date or date.today()).isoformat()
+    return f"nomenclature:{hs_code}:{country}:{day}"
+
+
 class TTLDailyMeasureCache:
     """Caché en memoria con TTL. Sustituible por Redis/SQLite."""
 

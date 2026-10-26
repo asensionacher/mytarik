@@ -29,7 +29,7 @@ ResponseLanguage = Literal["es", "en"]
 class CustomsItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    taric_code: str = Field(..., pattern=r"^\d{10}$")
+    taric_code: str = Field(..., pattern=r"^(\d{6}|\d{8}|\d{10})$")
     description: str
     customs_value: float | None = None
     currency: str | None = None
@@ -187,6 +187,29 @@ class ItemMeasures(BaseModel):
     provenance: ItemProvenance = Field(default_factory=ItemProvenance)
 
 
+class TaricCandidate(BaseModel):
+    taric_code: str
+    description: str = ""
+    exact: bool = True
+    source: str = "nomenclature"
+
+
+class ResolveTaricCodesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    hs_code: str = Field(..., pattern=r"^\d{6}$")
+    country: str = Field(..., pattern=r"^[A-Z]{2}$")
+    language: ResponseLanguage = "en"
+
+
+class ResolveTaricCodesResponse(BaseModel):
+    hs_code: str = ""
+    country: str = ""
+    candidates: list[TaricCandidate] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    source: str = "access2markets"
+
+
 class CustomsOperationResponse(BaseModel):
     status: Literal["ok", "partial", "error"] = "ok"
     operation_type: OperationType = "IMPORT"
@@ -235,6 +258,16 @@ class CustomsClient:
                 timeout=httpx.Timeout(self.timeout, connect=10.0),
             )
         return self._client
+
+    async def resolve_taric_codes(
+        self,
+        request: ResolveTaricCodesRequest,
+    ) -> ResolveTaricCodesResponse:
+        """Resuelve un código HS de 6 dígitos a sus códigos TARIC de 10 dígitos."""
+        payload = request.model_dump(exclude_none=True)
+        resp = await self.client.post("/customs/resolve-taric-codes", json=payload)
+        resp.raise_for_status()
+        return ResolveTaricCodesResponse.model_validate(resp.json())
 
     async def evaluate_operation(
         self,

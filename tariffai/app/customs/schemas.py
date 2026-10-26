@@ -113,7 +113,13 @@ class CustomsItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     taric_code: str = Field(
-        ..., pattern=r"^\d{10}$", description="Código TARIC de 10 dígitos, p. ej. '0210113100'",
+        ...,
+        pattern=r"^(\d{6}|\d{8}|\d{10})$",
+        description=(
+            "Código TARIC de 10 dígitos, p. ej. '0210113100'. Se admiten 6 u 8 "
+            "dígitos cuando la nomenclatura no expone la subdivisión: el motor "
+            "consulta entonces el nivel superior y lo indica en la respuesta."
+        ),
     )
     description: str = Field(..., min_length=1, max_length=1000)
     customs_value: float | None = Field(
@@ -158,6 +164,44 @@ class CustomsOperationRequest(BaseModel):
         description="Subdivisión ISO 3166-2 del destino",
     )
     items: list[CustomsItem] = Field(..., min_length=1, max_length=50)
+
+
+# ── Resolución de nomenclatura ─────────────────────────────────────────
+
+
+class TaricCandidate(BaseModel):
+    """Código TARIC de 10 dígitos propuesto para un código HS de 6 dígitos."""
+
+    taric_code: str = Field(..., pattern=r"^\d{10}$")
+    description: str = Field(default="", description="Descripción de la nomenclatura")
+    exact: bool = Field(
+        default=True,
+        description="False si el código es inferido y no viene de la nomenclatura",
+    )
+    source: str = Field(default="nomenclature", description="'nomenclature' o 'inferred'")
+
+
+class ResolveTaricCodesRequest(BaseModel):
+    """Petición de resolución de un código HS a códigos TARIC de 10 dígitos."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    hs_code: str = Field(..., pattern=r"^\d{6}$", description="Código HS de 6 dígitos")
+    country: str = Field(
+        ..., min_length=2, max_length=2, pattern=r"^[A-Z]{2}$",
+        description="País de destino (ISO 3166-1 alfa-2) de la operación",
+    )
+    language: ResponseLanguage = Field(default="en")
+
+
+class ResolveTaricCodesResponse(BaseModel):
+    """Candidatos TARIC de un código HS."""
+
+    hs_code: str
+    country: str
+    candidates: list[TaricCandidate] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    source: str = "access2markets"
 
 
 # ── Piezas de medida ───────────────────────────────────────────────────

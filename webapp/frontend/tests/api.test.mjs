@@ -27,9 +27,20 @@ const stringsURL = moduleURL(await readFile(new URL("../src/i18n/strings.ts", im
 const { getLang, setLang } = await import(stringsURL);
 const source = (await readFile(new URL("../src/api.ts", import.meta.url), "utf8"))
   .replace('from "./i18n/strings"', `from "${stringsURL}"`);
+const apiURL = moduleURL(source);
 const {
   ApiError, answerClarification, classifyRaw, uploadInvoice, evaluateCustomsOperation,
-} = await import(moduleURL(source));
+  resolveTaricCodes,
+} = await import(apiURL);
+
+const customsSource = (await readFile(
+  new URL("../src/components/CustomsPanel.tsx", import.meta.url), "utf8",
+))
+  .replace('import { useState } from "react";', 'import React, { useState } from "react";')
+  .replace('from "react"', `from "${import.meta.resolve("react")}"`)
+  .replace('from "../api"', `from "${apiURL}"`)
+  .replace('from "../i18n/strings"', `from "${stringsURL}"`);
+const { CustomsPanel, buildOperationPayload } = await import(componentModuleURL(customsSource));
 
 const reactURL = moduleURL(
   "export const useState = () => []; export default { createElement: (...args) => args };",
@@ -282,4 +293,70 @@ test("evaluates a customs operation against the public endpoint in the selected 
     assert.equal(body.operation_type, "IMPORT");
     assert.equal(body.items[0].taric_code, "4011100000");
   }
+});
+
+test("resolves the TARIC codes of an HS heading through the public endpoint", async (t) => {
+  const original = getLang();
+  t.after(() => setLang(original));
+  setLang("es");
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    requests.push({ url, body: JSON.parse(options.body) });
+    return Response.json({
+      hs_code: "610910", country: "ES",
+      candidates: [
+        { taric_code: "6109100010", description: "T-shirts", exact: true, source: "nomenclature" },
+        { taric_code: "6109100090", description: "Other", exact: true, source: "nomenclature" },
+      ],
+      warnings: [], source: "access2markets",
+    });
+  });
+  const result = await resolveTaricCodes("610910", "ES");
+  assert.equal(requests[0].url, "/api/v1/customs/resolve-taric-codes");
+  assert.deepEqual(requests[0].body, { hs_code: "610910", country: "ES", language: "es" });
+  assert.deepEqual(result.candidates.map((c) => c.taric_code), ["6109100010", "6109100090"]);
+});
+
+test("maps the invoice context and the accepted codes to the customs operation contract", () => {
+  const lines = [{
+    index: 0,
+    item: { description: "Camisetas de algodón", classification: { status: "classified", result: null, error: null } },
+    hsCode: "610910",
+  }];
+  const trade = { trade_mode: "import", origin_country: "CN", dispatch_country: "ES" };
+  const payload = buildOperationPayload(
+    lines, { 0: "6109100010" }, { 0: { value: "1200.50", weight: "300" } }, trade,
+  );
+  assert.equal(payload.operation_type, "IMPORT");
+  assert.equal(payload.origin_country, "CN");
+  assert.equal(payload.destination_country, "ES");
+  assert.equal(payload.items[0].taric_code, "6109100010");
+  assert.equal(payload.items[0].customs_value, 1200.5);
+  assert.equal(payload.items[0].currency, "EUR");
+  assert.equal(payload.items[0].net_weight_kg, 300);
+
+  const exportPayload = buildOperationPayload(
+    lines, {}, {}, { trade_mode: "export", origin_country: "ES", dispatch_country: "MA" },
+  );
+  assert.equal(exportPayload.operation_type, "EXPORT");
+  assert.equal(exportPayload.destination_country, "MA");
+  assert.equal(exportPayload.items[0].taric_code, "610910");
+  assert.equal(exportPayload.items[0].customs_value, undefined);
+});
+
+test("offers the customs measures only for the lines with a valid HS code", () => {
+  setLang("es");
+  const items = [
+    { line_number: 1, description: "Camisetas", classification: { status: "classified", result: { primary_code: "610910" }, error: null } },
+    { line_number: 2, description: "Error", classification: { status: "error", result: null, error: "boom" } },
+  ];
+  const markup = renderToStaticMarkup(React.createElement(CustomsPanel, {
+    items,
+    reviews: {},
+    trade: { trade_mode: "import", origin_country: "CN", dispatch_country: "ES" },
+    onError: () => {},
+  }));
+  assert.match(markup, /Evaluar medidas aduaneras/);
+  assert.match(markup, /Medidas aduaneras/);
+  setLang("en");
 });

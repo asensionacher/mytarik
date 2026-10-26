@@ -26,6 +26,8 @@ from app.config import settings
 from app.customs_client import (
     CustomsOperationRequest,
     CustomsOperationResponse,
+    ResolveTaricCodesRequest,
+    ResolveTaricCodesResponse,
     make_customs_client,
 )
 from app.invoice_parser import ParsedInvoice, parse_invoice, parse_text
@@ -338,6 +340,32 @@ async def _unhandled(request, exc):  # type: ignore[no-untyped-def]
 
 
 # ── Motor de medidas aduaneras ─────────────────────────────────────────
+
+@app.post(
+    "/api/v1/customs/resolve-taric-codes",
+    response_model=ResolveTaricCodesResponse,
+)
+async def resolve_taric_codes(
+    body: ResolveTaricCodesRequest,
+) -> ResolveTaricCodesResponse:
+    """
+    Resuelve un código HS de 6 dígitos a sus códigos TARIC de 10 dígitos.
+
+    El declarante elige el TARIC definitivo: el último dígito cambia el
+    arancel aplicable, así que la UI presenta los candidatos.
+    """
+    try:
+        async with make_customs_client() as client:
+            return await client.resolve_taric_codes(body)
+    except httpx.TimeoutException:
+        logger.exception("Tiempo de espera agotado resolviendo la nomenclatura")
+        raise HTTPException(504, "El motor de medidas superó el tiempo de espera")
+    except httpx.HTTPError as exc:
+        logger.exception("Fallo resolviendo la nomenclatura")
+        raise HTTPException(502, f"El motor de medidas no respondió: {exc}")
+    except Exception as exc:
+        logger.exception("Fallo resolviendo la nomenclatura")
+        raise HTTPException(502, f"No se pudo resolver la nomenclatura: {exc}")
 
 @app.post(
     "/api/v1/customs/evaluate-operation",

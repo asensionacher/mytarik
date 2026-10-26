@@ -169,3 +169,98 @@ def asyncio_run(coroutine):
     import asyncio
 
     return asyncio.run(coroutine)
+
+
+RESOLVE_RESPONSE = {
+    "hs_code": "610910",
+    "country": "ES",
+    "candidates": [
+        {"taric_code": "6109100010", "description": "T-shirts", "exact": True, "source": "nomenclature"},
+        {"taric_code": "6109100090", "description": "Other", "exact": True, "source": "nomenclature"},
+    ],
+    "warnings": [],
+    "source": "access2markets",
+}
+
+
+def test_endpoint_resolves_the_taric_codes_of_an_hs_heading(monkeypatch):
+    captured = []
+
+    def fake_client(monkeypatch, captured, response=None, error=None):
+        client = Mock()
+
+        async def resolve_taric_codes(request):
+            captured.append(request)
+            if error is not None:
+                raise error
+            from app.customs_client import ResolveTaricCodesResponse
+
+            return ResolveTaricCodesResponse.model_validate(response or RESOLVE_RESPONSE)
+
+        client.resolve_taric_codes = resolve_taric_codes
+        context = AsyncMock()
+        context.__aenter__.return_value = client
+        monkeypatch.setattr(main, "make_customs_client", lambda: context)
+
+    fake_client(monkeypatch, captured)
+
+    response = TestClient(main.app).post("/api/v1/customs/resolve-taric-codes", json={
+        "hs_code": "610910", "country": "ES", "language": "es",
+    })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [c["taric_code"] for c in body["candidates"]] == ["6109100010", "6109100090"]
+    assert captured[0].hs_code == "610910"
+    assert captured[0].country == "ES"
+
+
+@pytest.mark.parametrize("payload", [
+    {"hs_code": "61091", "country": "ES"},
+    {"hs_code": "610910", "country": "ESP"},
+    {"hs_code": "610910", "country": "ES", "modelo": "other"},
+])
+def test_endpoint_rejects_invalid_resolution_requests(payload):
+    response = TestClient(main.app).post("/api/v1/customs/resolve-taric-codes", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_endpoint_reports_an_unreachable_engine(monkeypatch):
+    captured = []
+
+    def fake_client(monkeypatch, captured, response=None, error=None):
+        client = Mock()
+
+        async def resolve_taric_codes(request):
+            captured.append(request)
+            if error is not None:
+                raise error
+            from app.customs_client import ResolveTaricCodesResponse
+
+            return ResolveTaricCodesResponse.model_validate(response or RESOLVE_RESPONSE)
+
+        client.resolve_taric_codes = resolve_taric_codes
+        context = AsyncMock()
+        context.__aenter__.return_value = client
+        monkeypatch.setattr(main, "make_customs_client", lambda: context)
+
+    fake_client(monkeypatch, captured, error=httpx.ConnectError("connection refused"))
+
+    response = TestClient(main.app).post("/api/v1/customs/resolve-taric-codes", json={
+        "hs_code": "610910", "country": "ES",
+    })
+
+    assert response.status_code == 502
+    assert "no respondió" in response.json()["detail"]
+
+
+def test_operation_accepts_six_digit_codes_when_the_nomenclature_does_not_expose_the_subdivision():
+    from app.customs_client import CustomsOperationRequest
+
+    request = CustomsOperationRequest(**{
+        **PAYLOAD,
+        "items": [{"taric_code": "610910", "description": "Camisetas"}],
+    })
+
+    assert request.items[0].taric_code == "610910"

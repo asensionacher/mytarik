@@ -3,6 +3,7 @@ import { ApiError, answerClarification, classifyRaw, fetchHealth, uploadInvoice 
 import { InvoiceUpload } from "./components/InvoiceUpload";
 import { TextInput } from "./components/TextInput";
 import { ResultTable } from "./components/ResultTable";
+import { CustomsPanel } from "./components/CustomsPanel";
 import {
   SUPPORTED_LANGS,
   getLang,
@@ -12,6 +13,7 @@ import {
 } from "./i18n/strings";
 import type {
   ClassificationProgress,
+  CodeReview,
   HealthResponse,
   InvoiceUploadResponse,
   TradeDetails,
@@ -46,6 +48,8 @@ export default function App() {
   const [tradeMode, setTradeMode] = useState<TradeMode | "">("");
   const [originCountry, setOriginCountry] = useState("");
   const [dispatchCountry, setDispatchCountry] = useState("");
+  // Revisión de códigos HS: la acepta quien declara, la usa el motor de medidas.
+  const [reviews, setReviews] = useState<Record<number, CodeReview>>({});
 
   // Re-render when language changes
   const [, setLangVersion] = useState(0);
@@ -91,6 +95,15 @@ export default function App() {
       setResult(update.invoice);
       setWarning(update.invoice.warning ?? null);
     }
+  }
+
+  function handleReview(index: number, review: CodeReview | null) {
+    setReviews((current) => {
+      const next = { ...current };
+      if (review) next[index] = review;
+      else delete next[index];
+      return next;
+    });
   }
 
   function resetTrade() {
@@ -394,7 +407,21 @@ export default function App() {
               </span>
             </div>
             {(result.items.length > 0 || !loading) && (
-              <ResultTable items={result.items} onAnswer={handleAnswer} disabled={loading} />
+              <ResultTable
+                items={result.items}
+                reviews={reviews}
+                onReview={handleReview}
+                onAnswer={handleAnswer}
+                disabled={loading}
+              />
+            )}
+            {result.items.length > 0 && (
+              <CustomsPanel
+                items={result.items}
+                reviews={reviews}
+                trade={result.trade}
+                onError={setError}
+              />
             )}
           </section>
         )}

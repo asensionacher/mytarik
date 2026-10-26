@@ -300,3 +300,31 @@ export interface CustomsOperationResponse {
   processing_time_ms: number;
   error: string | null;
 }
+
+// ── Resolución de nomenclatura (HS 6 dígitos → TARIC 10 dígitos) ──────
+
+export interface TaricCandidate {
+  taric_code: string;
+  description: string;
+  exact: boolean;
+  source: string;
+}
+
+export interface ResolveTaricCodesRequest {
+  hs_code: string;
+  country: string;
+  language: "es" | "en";
+}
+
+export interface ResolveTaricCodesResponse {
+  hs_code: string;
+  country: string;
+  candidates: TaricCandidate[];
+  warnings: string[];
+  source: string;
+}
+
+export interface CodeReview {
+  code: string;
+  changed: boolean;
+}

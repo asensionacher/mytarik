@@ -29,6 +29,8 @@ from app.customs.schemas import (
     DataSource,
     ItemMeasures,
     ItemProvenance,
+    ResolveTaricCodesRequest,
+    ResolveTaricCodesResponse,
 )
 from app.customs.taric_client import (
     ProviderResult,
@@ -38,6 +40,30 @@ from app.customs.taric_client import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def resolve_taric_codes(
+    request: ResolveTaricCodesRequest,
+    client: TaricRealtimeClient | None = None,
+) -> ResolveTaricCodesResponse:
+    """
+    Resuelve un código HS de 6 dígitos a sus códigos TARIC de 10 dígitos.
+
+    La elección entre candidatos es del declarante: el último dígito del
+    código TARIC cambia el arancel aplicable.
+    """
+    active_client = client or get_client()
+    active_client.ensure_ready()
+    candidates, warnings = await active_client.resolve_taric_codes(
+        request.hs_code, request.country,
+    )
+    return ResolveTaricCodesResponse(
+        hs_code=request.hs_code,
+        country=request.country,
+        candidates=candidates,
+        warnings=warnings,
+        provider="access2markets",
+    )
 
 
 def _now() -> str:
