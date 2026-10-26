@@ -62,6 +62,13 @@ services:
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-intfloat/multilingual-e5-small}
       TOP_K_CANDIDATES: "${TOP_K_CANDIDATES:-10}"
       CONFIDENCE_THRESHOLD: "${CONFIDENCE_THRESHOLD:-0.7}"
+      # Motor de medidas aduaneras en tiempo real
+      A2M_BASE_URL: "${A2M_BASE_URL:-https://trade.ec.europa.eu/access-to-markets}"
+      TARIC_HTTP_TIMEOUT: "${TARIC_HTTP_TIMEOUT:-20}"
+      TARIC_HTTP_RETRIES: "${TARIC_HTTP_RETRIES:-3}"
+      TARIC_CACHE_TTL_SECONDS: "${TARIC_CACHE_TTL_SECONDS:-86400}"
+      CUSTOMS_LLM_ENABLED: "${CUSTOMS_LLM_ENABLED:-true}"
+      UK_TARIFF_API_KEY: "${UK_TARIFF_API_KEY:-}"
     env_file:
       - .env
     ports:

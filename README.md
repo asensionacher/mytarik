@@ -191,6 +191,81 @@ Las respuestas viajan en `clarification_answers: [{"question": "...", "answer":
 el historial, `reasoning_triggers` y `needs_human_review`. No hay almacenamiento
 de conversaciones: el historial permanece en el estado de la página.
 
+## Motor de medidas aduaneras en tiempo real
+
+`POST /api/v1/customs/evaluate-operation` determina, para cada partida ya
+clasificada, las **medidas aduaneras vigentes** que le aplican. No se descarga
+el TARIC: las medidas se consultan en tiempo real a la fuente oficial.
+
+```json
+{
+  "operation_type": "IMPORT",
+  "origin_country": "CN",
+  "destination_country": "ES",
+  "incoterm": "CIF",
+  "language": "es",
+  "items": [{
+    "taric_code": "4011100000",
+    "description": "Neumáticos de turismo",
+    "customs_value": 12000,
+    "currency": "EUR",
+    "net_weight_kg": 900,
+    "supplementary_units": 100
+  }]
+}
+```
+
+La respuesta desglosa cada línea con `items_measures[]`:
+
+| Bloque | Contenido |
+| ------ | --------- |
+| `third_country_duty` | Arancel base Erga Omnes (medida 103), ad valorem o específico (`EUR / 100 kg`), con variantes (suspensiones, contingentes, envíos de poco valor, aranceles adicionales) |
+| `preferential_duties` | Preferencias y contingentes por acuerdo (medidas 142/143) con la prueba de origen exigida |
+| `trade_defense_measures` | Derechos antidumping y compensatorios (551–554) con el código adicional TARIC por fabricante, el certificado exigido y la tasa residual |
+| `border_controls_and_inspections` | Controles en frontera y documentos exigibles (CHED-A/CHED-P en PCF, SOIVRE, prueba de origen, factura comercial…) |
+| `environmental_and_special_regulations` | CBAM, EUDR, RoHS, F-gas, doble uso, sanciones, impuestos especiales |
+| `exemption_y_codes` | Códigos `"Y"` exactos a declarar en la casilla 44 del DUA |
+| `tax_estimation` | Derechos estimados y base del IVA de importación (valor + arancel) cuando hay valor y peso declarados |
+| `executive_summary` | Resumen en lenguaje aduanero generado por Foundry |
+
+Cada bloque marca su origen (`provenance.source`): `live` (consultado ahora),
+`cache` (caché del día), `taric_measure`, `a2m_document` (requisito publicado
+por Access2Markets) o `knowledge_base` (base regulatoria codificada, que hay
+que confirmar con la autoridad competente).
+
+**Validación geográfica previa.** Antes de tocar ningún servidor se decide el
+régimen:
+
+- **Intracomunitario** (p. ej. `FR` → `ES`): no hay DUA ni arancel; la respuesta
+  indica Intrastat y autoliquidación del IVA intracomunitario, y no se consulta
+  ninguna fuente externa.
+- **Excepciones territoriales**: Canarias, Ceuta y Melilla están fuera del
+  territorio aduanero y de IVA de la UE (DUA + IGIC/AIEM); Åland está dentro
+  del territorio aduanero pero fuera del de IVA; Açores y Madeira aplican IVA
+  regional reducido. Se detectan con la subdivisión opcional
+  (`origin_subdivision`/`destination_subdivision`, p. ej. `ES-CN`).
+- **País tercero → UE**: consulta completa del TARIC.
+- **UE → país tercero**: la UE no grava las exportaciones; el motor se centra
+  en prohibiciones, sanciones y licencias de doble uso, y avisa de que el
+  arancel del país destino no está en el TARIC.
+
+**Fuentes de datos.** El proveedor principal es el JSON que usa el propio portal
+**Access2Markets** de la Comisión Europea (`api/tariffs/get`, `api/taxes/get` y
+`api/v2/document/list`). Como respaldo queda preparado el UK Trade Tariff
+(sólo con credencial y cuando el flujo toca Gran Bretaña); el servicio SOAP
+DDS2 de TAXUD ya no expone esa ruta. El TARIC se actualiza una sola vez al día,
+así que las medidas se cachean 24 h por
+`{taric_code}:{origen}:{destino}:{operación}:{fecha}`.
+
+Las medidas se piden siempre en inglés (la clave de caché no depende del idioma)
+y la localización la aporta la capa de interpretación con Foundry, que además
+traduce los códigos crípticos a lenguaje aduanero. Los códigos `"Y"` que el
+modelo menciona y **no** existen en las medidas reales se descartan.
+
+El motor vive en `tariffai/app/customs/` y se expone allí como
+`POST /customs/evaluate`; el backend de la webapp lo publica en
+`/api/v1/customs/evaluate-operation` y no calcula nada.
+
 ## Formatos soportados en el upload
 
 - **PDF** (texto embebido): se extraen las tablas (`pdfplumber`) y se toma la columna de descripción.
@@ -205,6 +280,7 @@ de conversaciones: el historial permanece en el estado de la página.
 | POST   | `/api/invoice/upload`      | `multipart/form-data` con `file` (pdf/txt/png/jpg/webp), `trade_mode` (`import`\|`export`), `origin_country` y `dispatch_country` (ISO-2) |
 | POST   | `/api/classify`            | `{"description": "..."}` → clasificación de una línea       |
 | POST   | `/api/classify/raw`        | Pega texto directo, mismo comportamiento que un `.txt`     |
+| POST   | `/api/v1/customs/evaluate-operation` | Contexto comercial + `items[]` ya clasificados → medidas aduaneras vigentes por partida |
 
 El contexto comercial es **obligatorio** en las rutas de factura (`/api/invoice/upload`
 y `/api/classify/raw`): un solo contexto por factura, con `trade_mode`

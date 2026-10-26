@@ -4,6 +4,7 @@ TariffAI — FastAPI Application
 Endpoints:
     POST /classify         — Classify a single cargo description
     POST /classify/batch   — Classify multiple descriptions
+    POST /customs/evaluate — Determine the customs measures of an operation
     GET  /health           — Health check with Qdrant status
 """
 
@@ -21,6 +22,8 @@ from app.schemas import (
 from app.graph import classify_cargo
 from app.hs_retriever import initialize_retriever
 from app.config import QDRANT_HOST, QDRANT_PORT, QDRANT_COLLECTION
+from app.customs.router import router as customs_router
+from app.customs.service import close_client as close_customs_client
 
 
 @asynccontextmanager
@@ -34,6 +37,7 @@ async def lifespan(app: FastAPI):
         print(f"[TariffAI] ⚠️  Retriever init failed (Qdrant may not be running): {e}")
         print("[TariffAI]    The API will start but /classify will fail until Qdrant is available.")
     yield
+    await close_customs_client()
     print("[TariffAI] Shutting down.")
 
 
@@ -54,6 +58,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(customs_router)
 
 
 @app.post("/classify", response_model=ClassifyResponse)

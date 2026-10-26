@@ -2,6 +2,7 @@ import type {
   ClassificationEvent, ClassificationProgress, HealthResponse, InvoiceItem,
   InvoiceUploadResponse, TradeDetails,
   ClarificationAnswer, ClassifyResponse,
+  CustomsOperationRequest, CustomsOperationResponse,
 } from "./types";
 import { getLang } from "./i18n/strings";
 
@@ -181,4 +182,15 @@ async function readProgress(
 export async function fetchHealth(): Promise<HealthResponse> {
   const res = await fetch("/api/health");
   return jsonOrThrow<HealthResponse>(res);
+}
+
+export async function evaluateCustomsOperation(
+  request: Omit<CustomsOperationRequest, "language">,
+): Promise<CustomsOperationResponse> {
+  const res = await fetch("/api/v1/customs/evaluate-operation", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...request, language: getLang() }),
+  });
+  return jsonOrThrow<CustomsOperationResponse>(res);
 }

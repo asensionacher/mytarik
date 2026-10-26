@@ -5,6 +5,7 @@
 - `docker-compose.yml` is the only orchestrator. Services are `webapp-frontend` (Vite/Nginx, host `:3000`), `webapp-backend` (FastAPI, `:8005`), `tariffai-api` (FastAPI, `:8004`), and `qdrant` (`:6333`).
 - `webapp/backend/app/main.py` owns invoice parsing, request validation, and the NDJSON progress protocol. `webapp/backend/app/invoice_parser.py` only extracts descriptions; `webapp/backend/app/tariffai_client.py` is the HTTP boundary to TariffAI.
 - `tariffai/app/main.py` exposes `/classify` and `/classify/batch`; `tariffai/app/graph.py` runs preprocess → retrieval → LLM classification. Qdrant stores only the HS catalogue, not invoices or results.
+- `tariffai/app/customs/` is the customs measures engine: `geography.py` (territorial validation), `taric_client.py` (real-time providers + daily TTL cache), `parser.py` (raw TARIC → contract), `knowledge.py` (non-tariff regulatory rules), `interpreter.py` (LLM summary), `service.py` (orchestrator), `router.py` (`POST /customs/evaluate`). `webapp/backend/app/main.py` publishes it as `POST /api/v1/customs/evaluate-operation`.
 - No invoice/result persistence exists. Frontend state is request-local; do not add persistence assumptions without an explicit requirement.
 
 ## Commands
@@ -44,6 +45,8 @@ docker compose up -d --build
 - Frontend types in `webapp/frontend/src/types.ts` mirror backend wire shapes. Update both sides and the relevant API tests when changing a contract.
 - UI strings live in `webapp/frontend/src/i18n/strings.ts`; `dict.es` and `dict.en` must retain the same shape. Add translations in both languages.
 - HS codes are 6 digits. The app may show an original suggestion, but user-accepted/manual codes are review state only; no endpoint persists the override.
+- The customs operation contract carries `operation_type`, `origin_country`, `destination_country`, `incoterm`, `language` and `items[]` with a 10-digit `taric_code`. It is strict (`extra="forbid"`) on both sides: `webapp/backend/app/customs_client.py` mirrors `tariffai/app/customs/schemas.py`.
+- The customs cache key is `f"{taric_code}:{origin}:{destination}:{operation_type}:{date.today()}"`: the TARIC changes once a day, so a 24 h TTL is enough and the date rollover invalidates it.
 
 ## Operational gotchas
 

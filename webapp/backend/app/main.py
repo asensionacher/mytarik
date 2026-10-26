@@ -4,6 +4,7 @@ FastAPI app — expone:
     POST /api/invoice/upload   (multipart/form-data: file)
     POST /api/classify        (json: { "description": "..." })
     POST /api/classify/raw    (json: { "text": "línea1\nlínea2" })
+    POST /api/v1/customs/evaluate-operation (json: contexto + partidas)
 """
 
 from __future__ import annotations
@@ -22,6 +23,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
+from app.customs_client import (
+    CustomsOperationRequest,
+    CustomsOperationResponse,
+    make_customs_client,
+)
 from app.invoice_parser import ParsedInvoice, parse_invoice, parse_text
 from app.tariffai_client import ClarificationAnswer, ResponseLanguage, TariffAIClient, make_client
 
@@ -329,3 +335,38 @@ async def classify_raw(body: RawBody, request: Request) -> dict[str, Any] | Stre
 async def _unhandled(request, exc):  # type: ignore[no-untyped-def]
     logger.error("Unhandled error: %s\n%s", exc, traceback.format_exc())
     return HTTPException(500, "Internal server error")
+
+
+# ── Motor de medidas aduaneras ─────────────────────────────────────────
+
+@app.post(
+    "/api/v1/customs/evaluate-operation",
+    response_model=CustomsOperationResponse,
+)
+async def evaluate_customs_operation(
+    body: CustomsOperationRequest,
+) -> CustomsOperationResponse:
+    """
+    Determina las medidas aduaneras vigentes de cada partida de la operación.
+
+    El backend no calcula nada: valida el contexto y delega en el motor de
+    TariffAI, que consulta las fuentes en tiempo real y devuelve el desglose
+    por partida (aranceles, preferencias, defensa comercial, controles
+    fronterizos, normativa especial, códigos "Y" y estimación de impuestos).
+    """
+    try:
+        async with make_customs_client() as client:
+            response = await client.evaluate_operation(body)
+    except httpx.TimeoutException as exc:
+        logger.exception("Tiempo de espera agotado evaluando la operación aduanera")
+        raise HTTPException(504, "El motor de medidas superó el tiempo de espera")
+    except httpx.HTTPError as exc:
+        logger.exception("Fallo llamando al motor de medidas aduaneras")
+        raise HTTPException(502, f"El motor de medidas no respondió: {exc}")
+    except Exception as exc:
+        logger.exception("Fallo evaluando la operación aduanera")
+        raise HTTPException(502, f"No se pudo evaluar la operación: {exc}")
+
+    if response.status == "error":
+        raise HTTPException(502, response.error or "El motor de medidas falló")
+    return response

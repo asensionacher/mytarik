@@ -27,7 +27,9 @@ const stringsURL = moduleURL(await readFile(new URL("../src/i18n/strings.ts", im
 const { getLang, setLang } = await import(stringsURL);
 const source = (await readFile(new URL("../src/api.ts", import.meta.url), "utf8"))
   .replace('from "./i18n/strings"', `from "${stringsURL}"`);
-const { ApiError, answerClarification, classifyRaw, uploadInvoice } = await import(moduleURL(source));
+const {
+  ApiError, answerClarification, classifyRaw, uploadInvoice, evaluateCustomsOperation,
+} = await import(moduleURL(source));
 
 const reactURL = moduleURL(
   "export const useState = () => []; export default { createElement: (...args) => args };",
@@ -254,5 +256,30 @@ test("sends the selected website language for text and invoice uploads", async (
     assert.equal(requests.at(-1).options.body.get("trade_mode"), trade.trade_mode);
     assert.equal(requests.at(-1).options.body.get("origin_country"), trade.origin_country);
     assert.equal(requests.at(-1).options.body.get("dispatch_country"), trade.dispatch_country);
+  }
+});
+
+test("evaluates a customs operation against the public endpoint in the selected language", async (t) => {
+  const original = getLang();
+  t.after(() => setLang(original));
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    requests.push({ url, options });
+    return Response.json({ status: "ok", customs_regime: "IMPORT_FROM_THIRD_COUNTRY", items_measures: [] });
+  });
+  for (const language of ["es", "en"]) {
+    setLang(language);
+    const result = await evaluateCustomsOperation({
+      operation_type: "IMPORT", origin_country: "CN", destination_country: "ES",
+      items: [{ taric_code: "4011100000", description: "Neumáticos" }],
+    });
+    assert.equal(result.customs_regime, "IMPORT_FROM_THIRD_COUNTRY");
+    const { url, options } = requests.at(-1);
+    assert.equal(url, "/api/v1/customs/evaluate-operation");
+    assert.equal(options.method, "POST");
+    const body = JSON.parse(options.body);
+    assert.equal(body.language, language);
+    assert.equal(body.operation_type, "IMPORT");
+    assert.equal(body.items[0].taric_code, "4011100000");
   }
 });
