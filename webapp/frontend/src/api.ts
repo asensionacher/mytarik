@@ -1,6 +1,6 @@
 import type {
-  ClassificationEvent, ClassificationProgress, HealthResponse, InvoiceItem,
-  InvoiceUploadResponse, TradeDetails,
+  ClarificationAnswer, ClassificationEvent, ClassificationProgress, ClassifyResponse,
+  HealthResponse, InvoiceItem, InvoiceUploadResponse, TradeDetails,
 } from "./types";
 import { getLang } from "./i18n/strings";
 
@@ -76,6 +76,29 @@ export async function classifyRaw(
   });
   if (onProgress) return readProgress(res, onProgress);
   return jsonOrThrow<InvoiceUploadResponse>(res);
+}
+
+/**
+ * Re-clasifica una línea con las respuestas del usuario a las preguntas de
+ * aclaración. TariffAI vuelve a razonar con la transcripción y devuelve el
+ * código definitivo o las preguntas que queden.
+ */
+export async function classifyWithAnswers(
+  description: string,
+  trade: TradeDetails,
+  answers: ClarificationAnswer[],
+): Promise<ClassifyResponse> {
+  const res = await fetch("/api/classify", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      description,
+      language: getLang(),
+      trade,
+      clarification_answers: answers,
+    }),
+  });
+  return jsonOrThrow<ClassifyResponse>(res);
 }
 
 async function readProgress(

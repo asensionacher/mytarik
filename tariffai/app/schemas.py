@@ -50,6 +50,32 @@ class ClassificationReasoning(BaseModel):
     key_factors: list[str] = Field(default_factory=list, description="Key product attributes that drove the decision")
 
 
+class ClarificationOption(BaseModel):
+    """A selectable answer offered to the human for a clarifying question."""
+    value: str = Field(..., description="Machine value sent back when the option is picked")
+    label: str = Field(default="", description="Human readable label for the option")
+    code: str | None = Field(default=None, pattern=r"^\d{6}$", description="HS code the option points to, if any")
+    description: str | None = Field(default=None, description="Extra context shown next to the option")
+
+
+class ClarificationQuestion(BaseModel):
+    """A question the model asks the human to disambiguate the cargo."""
+    id: str = Field(..., description="Stable identifier of the question inside the line")
+    question: str = Field(..., description="The question shown to the human")
+    hint: str = Field(default="", description="Optional hint explaining why it is needed")
+    allow_free_text: bool = Field(default=True, description="Whether the human may type a free answer")
+    options: list[ClarificationOption] = Field(
+        default_factory=list, description="Buttons the human can pick instead of typing",
+    )
+
+
+class ClarificationAnswer(BaseModel):
+    """A human answer to a clarifying question, sent back to resolve the line."""
+    question_id: str = Field(default="", description="Identifier of the answered question")
+    question: str = Field(default="", description="Text of the answered question, for the transcript")
+    answer: str = Field(..., min_length=1, description="The answer: option value or free text")
+
+
 class ClassificationResult(BaseModel):
     """Final classification output for a single cargo description."""
     input_text: str = Field(..., description="Original raw cargo description")
@@ -77,6 +103,19 @@ class ClassificationResult(BaseModel):
     total_tokens: int = Field(default=0, ge=0, description="Total de tokens consumidos (prompt + output)")
     # None when the deployment does not expose internal reasoning.
     thinking: str | None = Field(default=None, description="Razonamiento interno del modelo (modo thinking)")
+    # ── Human in the loop ──
+    clarifying_questions: list[ClarificationQuestion] = Field(
+        default_factory=list,
+        description="Questions the model needs answered before the code can be settled",
+    )
+    clarification_answers: list[ClarificationAnswer] = Field(
+        default_factory=list,
+        description="Answers already provided by the human for this line",
+    )
+    reasoning_reasons: list[str] = Field(
+        default_factory=list,
+        description="Why the deep reasoning stage was triggered (low_confidence, tied_candidates, short_query)",
+    )
 
 
 class ClassifyRequest(BaseModel):
@@ -95,6 +134,11 @@ class ClassifyRequest(BaseModel):
             "20 pallets of ceramic floor tiles 30x30cm glazed",
         ]
     )
+    clarification_answers: list[ClarificationAnswer] = Field(
+        default_factory=list,
+        max_length=3,
+        description="Answers given by the human to the clarifying questions asked in a previous round",
+    )
 
 
 class BatchClassifyRequest(BaseModel):
@@ -108,6 +152,6 @@ class BatchClassifyRequest(BaseModel):
 
 class ClassifyResponse(BaseModel):
     """API response for a classification request."""
-    status: Literal["classified", "ambiguous", "error"]
+    status: Literal["classified", "ambiguous", "needs_clarification", "error"]
     result: ClassificationResult | None = None
     error: str | None = None

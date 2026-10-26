@@ -62,6 +62,12 @@ services:
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-intfloat/multilingual-e5-small}
       TOP_K_CANDIDATES: "${TOP_K_CANDIDATES:-10}"
       CONFIDENCE_THRESHOLD: "${CONFIDENCE_THRESHOLD:-0.7}"
+      # Stage 4: razonamiento profundo sobre el catálogo HS + preguntas al usuario.
+      REASONING_CONFIDENCE_THRESHOLD: "${REASONING_CONFIDENCE_THRESHOLD:-0.75}"
+      TIE_MARGIN_THRESHOLD: "${TIE_MARGIN_THRESHOLD:-0.001}"
+      MIN_QUERY_CHARS: "${MIN_QUERY_CHARS:-25}"
+      MIN_QUERY_WORDS: "${MIN_QUERY_WORDS:-4}"
+      MAX_CLARIFYING_QUESTIONS: "${MAX_CLARIFYING_QUESTIONS:-3}"
     env_file:
       - .env
     ports:

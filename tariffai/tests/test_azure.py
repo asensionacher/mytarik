@@ -15,6 +15,12 @@ from app import llm_provider, translation
 from app.schemas import BatchClassifyRequest, ClassifyRequest, TradeContext
 
 
+# Descripción larga y específica: no dispara la etapa de razonamiento profundo,
+# así que el pipeline se queda en una sola llamada al modelo.
+DESCRIPTION = "500 cartons of men's cotton polo shirts, 100% cotton, knitted"
+SPANISH_DESCRIPTION = "camisas de algodón para hombre, tejido de punto, 100% algodón"
+
+
 def test_foundry_uses_project_managed_identity_and_server_deployment(monkeypatch):
     credential = Mock()
     credential_class = Mock(return_value=credential)
@@ -165,8 +171,8 @@ def test_classification_routes_use_foundry_and_preserve_result(monkeypatch):
     )
     monkeypatch.setattr(llm_classifier, "get_provider", lambda: provider)
     client = TestClient(main.app)
-    single = client.post("/classify", json={"description": "cotton shirts"})
-    batch = client.post("/classify/batch", json={"descriptions": ["cotton shirts"]})
+    single = client.post("/classify", json={"description": DESCRIPTION})
+    batch = client.post("/classify/batch", json={"descriptions": [DESCRIPTION]})
     assert single.status_code == batch.status_code == 200
     for result in (single.json(), batch.json()[0]):
         assert result["status"] == "classified"
@@ -200,10 +206,10 @@ def test_trade_context_reaches_the_classification_prompt(monkeypatch):
     )
     client = TestClient(main.app)
     single = client.post("/classify", json={
-        "description": "cotton shirts", "trade": trade.model_dump(),
+        "description": DESCRIPTION, "trade": trade.model_dump(),
     })
     batch = client.post("/classify/batch", json={
-        "descriptions": ["cotton shirts"], "trade": trade.model_dump(),
+        "descriptions": [DESCRIPTION], "trade": trade.model_dump(),
     })
     assert single.status_code == batch.status_code == 200
     assert provider.complete.call_count == 2
@@ -278,8 +284,8 @@ def test_response_language_flows_through_routes_graph_and_foundry(monkeypatch, l
     monkeypatch.setattr(llm_classifier, "get_provider", lambda: provider)
     client = TestClient(main.app)
     for path, payload in [
-        ("/classify", {"description": "camisas de algodón"}),
-        ("/classify/batch", {"descriptions": ["camisas de algodón"]}),
+        ("/classify", {"description": SPANISH_DESCRIPTION}),
+        ("/classify/batch", {"descriptions": [SPANISH_DESCRIPTION]}),
     ]:
         response = client.post(path, json={**payload, "language": language})
         assert response.status_code == 200
@@ -295,7 +301,7 @@ def test_response_language_flows_through_routes_graph_and_foundry(monkeypatch, l
         assert result["reasoning"]["chapter_reasoning"] == explanation
         assert result["alternative_codes"][0]["trade_off"] == explanation
         assert result["thinking"] == explanation
-        assert result["input_text"] == "camisas de algodón"
+        assert result["input_text"] == SPANISH_DESCRIPTION
     for call in provider.complete.call_args_list:
         assert f"Response language: {language_name}" in call.kwargs["system"]
         assert "hierarchy_descriptions" in call.kwargs["system"]

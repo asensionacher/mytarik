@@ -23,7 +23,12 @@ from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
 from app.invoice_parser import ParsedInvoice, parse_invoice, parse_text
-from app.tariffai_client import ResponseLanguage, TariffAIClient, make_client
+from app.tariffai_client import (
+    ClarificationAnswer,
+    ResponseLanguage,
+    TariffAIClient,
+    make_client,
+)
 
 logging.basicConfig(
     level=settings.log_level.upper(),
@@ -65,6 +70,11 @@ class ClassifyBody(BaseModel):
     description: str = Field(..., min_length=3, description="Descripción de una línea de factura")
     language: ResponseLanguage = "en"
     trade: TradeDetails | None = None
+    clarification_answers: list[ClarificationAnswer] = Field(
+        default_factory=list,
+        max_length=3,
+        description="Respuestas del usuario a las preguntas de aclaración de una ronda anterior",
+    )
 
 class RawBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -253,13 +263,22 @@ async def upload_invoice(
 
 @app.post("/api/classify")
 async def classify_single(body: ClassifyBody) -> dict[str, Any]:
-    """Clasifica una única descripción (atajo para pruebas)."""
+    """
+    Clasifica una única descripción (atajo para pruebas).
+
+    Acepta `clarification_answers` para cerrar una línea que TariffAI dejó
+    pendiente: TariffAI vuelve a razonar con las respuestas y devuelve el
+    código definitivo (o las preguntas que queden).
+    """
     try:
         async with make_client() as client:
             response = await client.classify_one(
                 body.description,
                 language=body.language,
                 trade=body.trade.model_dump() if body.trade else None,
+                clarification_answers=[
+                    answer.model_dump() for answer in body.clarification_answers
+                ] or None,
             )
     except (httpx.TimeoutException, TimeoutError) as exc:
         logger.exception("Tiempo de espera agotado clasificando la descripción")

@@ -25,12 +25,17 @@ const stringsURL = moduleURL(await readFile(new URL("../src/i18n/strings.ts", im
 const { getLang, setLang } = await import(stringsURL);
 const source = (await readFile(new URL("../src/api.ts", import.meta.url), "utf8"))
   .replace('from "./i18n/strings"', `from "${stringsURL}"`);
-const { ApiError, classifyRaw, uploadInvoice } = await import(moduleURL(source));
+const { ApiError, classifyRaw, classifyWithAnswers, uploadInvoice } = await import(moduleURL(source));
 
 const reactURL = moduleURL(
   "export const useState = () => []; export default { createElement: (...args) => args };",
 );
 const detailPanelURL = moduleURL("export function DetailPanel() { return null; }");
+const clarificationFormURL = moduleURL("export function ClarificationForm() { return null; }");
+const errorsURL = moduleURL("export function humanizeError() { return 'stub error'; }");
+const resultTableApiURL = moduleURL(
+  "export async function classifyWithAnswers() { return { status: 'error', result: null, error: 'stub' }; }",
+);
 const resultTableSource = (await readFile(
   new URL("../src/components/ResultTable.tsx", import.meta.url), "utf8",
 ))
@@ -40,7 +45,10 @@ const resultTableSource = (await readFile(
   )
   .replace('from "react"', `from "${reactURL}"`)
   .replace('from "../i18n/strings"', `from "${stringsURL}"`)
-  .replace('from "./DetailPanel"', `from "${detailPanelURL}"`);
+  .replace('from "../errors"', `from "${errorsURL}"`)
+  .replace('from "../api"', `from "${resultTableApiURL}"`)
+  .replace('from "./DetailPanel"', `from "${detailPanelURL}"`)
+  .replace('from "./ClarificationForm"', `from "${clarificationFormURL}"`);
 const { createCodeReview, isValidHsCode } = await import(componentModuleURL(resultTableSource));
 
 const trade = { trade_mode: "import", origin_country: "ES", dispatch_country: "CN" };
@@ -196,4 +204,35 @@ test("sends the selected website language for text and invoice uploads", async (
     assert.equal(requests.at(-1).options.body.get("origin_country"), trade.origin_country);
     assert.equal(requests.at(-1).options.body.get("dispatch_country"), trade.dispatch_country);
   }
+});
+
+test("sends the clarification answers back with the line to reclassify", async (t) => {
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    requests.push({ url, options });
+    return new Response(
+      JSON.stringify({ status: "classified", result: null, error: null }),
+      { headers: { "content-type": "application/json" } },
+    );
+  });
+  const answers = [
+    { question_id: "q1", question: "¿Es de algodón?", answer: "Sí" },
+    { question_id: "q2", question: "¿Uso?", answer: "Diaria" },
+  ];
+  const response = await classifyWithAnswers("camisetas de algodón", trade, answers);
+  assert.equal(response.status, "classified");
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "/api/classify");
+  const body = JSON.parse(requests[0].options.body);
+  assert.equal(body.description, "camisetas de algodón");
+  assert.deepEqual(body.trade, trade);
+  assert.deepEqual(body.clarification_answers, answers);
+});
+
+test("reports a failed clarification round trip as an API error", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => new Response("boom", { status: 502 }));
+  await assert.rejects(
+    classifyWithAnswers("camisetas", trade, [{ question_id: "q1", question: "?", answer: "sí" }]),
+    (error) => error instanceof ApiError && error.status === 502,
+  );
 });

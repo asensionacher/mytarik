@@ -75,6 +75,7 @@ export const dict = {
       status: {
         classified: "Clasificado",
         ambiguous: "Ambiguo",
+        needs_clarification: "Necesita aclaración",
         error: "Error",
       },
       itemsCount: (n: number) =>
@@ -91,6 +92,15 @@ export const dict = {
       manualDescription: "Descripción no disponible para el código manual.",
       originalProposal: "El detalle y la confianza corresponden al código propuesto originalmente.",
       invalidHsCode: "El código HS debe tener 6 dígitos.",
+      clarify: {
+        title: "Falta información para fijar el código",
+        subtitle: "Responde y recalcularemos el código HS con tu respuesta.",
+        question: (n: number, total: number) => `Pregunta ${n} de ${total}`,
+        freeText: "Escribe tu respuesta…",
+        submit: "Recalcular código",
+        submitting: "Recalculando…",
+        answerRequired: "Responde a todas las preguntas para continuar.",
+      },
     },
     details: {
       cleaned: "Texto limpiado",
@@ -112,6 +122,8 @@ export const dict = {
       alternatives: "Códigos alternativos",
       whyNot: "Por qué no",
       tradeOff: "Trade-off",
+      answers: "Respuestas recibidas",
+      reasoningReasons: "Motivo del razonamiento",
       time: (ms: number) => `Tiempo de procesamiento: ${ms.toFixed(0)} ms`,
     },
     tokens: {
@@ -200,6 +212,7 @@ export const dict = {
       status: {
         classified: "Classified",
         ambiguous: "Ambiguous",
+        needs_clarification: "Needs clarification",
         error: "Error",
       },
       itemsCount: (n: number) =>
@@ -216,6 +229,15 @@ export const dict = {
       manualDescription: "No description is available for the manual code.",
       originalProposal: "The detail and confidence refer to the originally proposed code.",
       invalidHsCode: "The HS code must contain 6 digits.",
+      clarify: {
+        title: "Missing information to settle the code",
+        subtitle: "Answer and we will recompute the HS code with your reply.",
+        question: (n: number, total: number) => `Question ${n} of ${total}`,
+        freeText: "Type your answer…",
+        submit: "Recompute code",
+        submitting: "Recomputing…",
+        answerRequired: "Answer every question to continue.",
+      },
     },
     details: {
       cleaned: "Cleaned text",
@@ -237,6 +259,8 @@ export const dict = {
       alternatives: "Alternative codes",
       whyNot: "Why not",
       tradeOff: "Trade-off",
+      answers: "Answers received",
+      reasoningReasons: "Reasoning triggers",
       time: (ms: number) => `Processing time: ${ms.toFixed(0)} ms`,
     },
     tokens: {

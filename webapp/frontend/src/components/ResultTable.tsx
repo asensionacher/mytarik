@@ -1,10 +1,25 @@
 import { useState } from "react";
 import { t } from "../i18n/strings";
-import type { ClassificationResult, InvoiceItem } from "../types";
+import { classifyWithAnswers } from "../api";
+import { humanizeError } from "../errors";
+import type {
+  ClarificationAnswer,
+  ClarificationQuestion,
+  ClassificationResult,
+  ClassifyResponse,
+  ClassifyStatus,
+  InvoiceItem,
+  TradeDetails,
+} from "../types";
+import { ClarificationForm } from "./ClarificationForm";
 import { DetailPanel } from "./DetailPanel";
 
 interface Props {
   items: InvoiceItem[];
+  trade: TradeDetails;
+  /** Clasificaciones ya resueltas por el usuario, indexadas por línea. */
+  resolved?: Record<number, ClassifyResponse>;
+  onResolved?: (index: number, response: ClassifyResponse) => void;
 }
 
 interface CodeReview {
@@ -26,15 +41,21 @@ function confidenceColor(c: number): string {
   return "bg-rose-100 text-rose-800";
 }
 
-function statusBadge(status: "classified" | "ambiguous" | "error"): string {
+function statusBadge(status: ClassifyStatus): string {
   if (status === "classified") return "bg-emerald-100 text-emerald-800";
   if (status === "ambiguous") return "bg-amber-100 text-amber-800";
+  if (status === "needs_clarification") return "bg-blue-100 text-blue-800";
   return "bg-rose-100 text-rose-800";
 }
 
-export function ResultTable({ items }: Props) {
+export function ResultTable({ items, trade, resolved = {}, onResolved }: Props) {
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const [reviews, setReviews] = useState<Record<number, CodeReview>>({});
+  // Ronda de aclaración por línea: fuerza a remontar el formulario cuando
+  // llegan preguntas nuevas (aunque reutilicen los mismos identificadores).
+  const [rounds, setRounds] = useState<Record<number, number>>({});
+  const [busy, setBusy] = useState<Record<number, boolean>>({});
+  const [errors, setErrors] = useState<Record<number, string | null>>({});
   const s = t().results;
 
   function acceptCode(index: number, code: string) {
@@ -58,6 +79,22 @@ export function ResultTable({ items }: Props) {
       delete next[index];
       return next;
     });
+  }
+
+  async function submitAnswers(
+    index: number, description: string, answers: ClarificationAnswer[],
+  ) {
+    setBusy((current) => ({ ...current, [index]: true }));
+    setErrors((current) => ({ ...current, [index]: null }));
+    try {
+      const response = await classifyWithAnswers(description, trade, answers);
+      onResolved?.(index, response);
+      setRounds((current) => ({ ...current, [index]: (current[index] ?? 0) + 1 }));
+    } catch (error) {
+      setErrors((current) => ({ ...current, [index]: humanizeError(error) }));
+    } finally {
+      setBusy((current) => ({ ...current, [index]: false }));
+    }
   }
 
   if (!items.length) {
@@ -88,7 +125,7 @@ export function ResultTable({ items }: Props) {
         <tbody className="divide-y divide-slate-100">
           {items.map((it, idx) => {
             const lineIndex = (it.line_number ?? idx + 1) - 1;
-            const r = it.classification;
+            const r = resolved[lineIndex] ?? it.classification;
             const result = r.result;
             const status = r.status;
             const suggestedCode = result?.primary_code ?? null;
@@ -96,12 +133,14 @@ export function ResultTable({ items }: Props) {
             const hsDesc = result?.primary_description ?? "";
             const conf = result?.confidence ?? 0;
             const open = openIdx === lineIndex;
+            const questions = result?.clarifying_questions ?? [];
 
             return (
               <FragmentRow
                 key={lineIndex}
                 idx={lineIndex}
                 it={it}
+                classification={r}
                 result={result}
                 open={open}
                 status={status}
@@ -116,6 +155,11 @@ export function ResultTable({ items }: Props) {
                 onSave={(newCode) => saveCode(lineIndex, newCode, suggestedCode)}
                 onReset={() => resetCode(lineIndex)}
                 onToggle={() => setOpenIdx(open ? null : lineIndex)}
+                questions={questions}
+                questionKey={`${lineIndex}-${rounds[lineIndex] ?? 0}`}
+                busy={Boolean(busy[lineIndex])}
+                error={errors[lineIndex] ?? null}
+                onAnswer={(answers) => submitAnswers(lineIndex, it.description, answers)}
               />
             );
           })}
@@ -128,9 +172,10 @@ export function ResultTable({ items }: Props) {
 interface RowProps {
   idx: number;
   it: InvoiceItem;
+  classification: ClassifyResponse;
   result: ClassificationResult | null;
   open: boolean;
-  status: "classified" | "ambiguous" | "error";
+  status: ClassifyStatus;
   code: string;
   suggestedCode: string | null;
   review?: CodeReview;
@@ -142,12 +187,18 @@ interface RowProps {
   onSave: (code: string) => void;
   onReset: () => void;
   onToggle: () => void;
+  questions: ClarificationQuestion[];
+  questionKey: string;
+  busy: boolean;
+  error: string | null;
+  onAnswer: (answers: ClarificationAnswer[]) => void;
 }
 
 function FragmentRow(props: RowProps) {
   const {
-    idx, it, result, open, status, code, suggestedCode, review, hsDesc, conf,
+    idx, it, classification, result, open, status, code, suggestedCode, review, hsDesc, conf,
     statusColors, confidenceColors, onAccept, onSave, onReset, onToggle,
+    questions, questionKey, busy, error, onAnswer,
   } = props;
   const s = t().results;
   const [editing, setEditing] = useState(false);
@@ -304,6 +355,19 @@ function FragmentRow(props: RowProps) {
           </button>
         </td>
       </tr>
+      {questions.length ? (
+        <tr className="bg-blue-50/40">
+          <td colSpan={7} className="px-3 py-3">
+            <ClarificationForm
+              key={questionKey}
+              questions={questions}
+              busy={busy}
+              error={error}
+              onSubmit={onAnswer}
+            />
+          </td>
+        </tr>
+      ) : null}
       {open && (
         <tr className="bg-slate-50/50">
           <td colSpan={7} className="px-6 py-4">
@@ -315,7 +379,7 @@ function FragmentRow(props: RowProps) {
                 {s.originalProposal}
               </div>
             )}
-            <DetailPanel response={it.classification} />
+            <DetailPanel response={classification} />
           </td>
         </tr>
       )}

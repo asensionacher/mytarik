@@ -4,7 +4,8 @@
 
 - `docker-compose.yml` is the only orchestrator. Services are `webapp-frontend` (Vite/Nginx, host `:3000`), `webapp-backend` (FastAPI, `:8005`), `tariffai-api` (FastAPI, `:8004`), and `qdrant` (`:6333`).
 - `webapp/backend/app/main.py` owns invoice parsing, request validation, and the NDJSON progress protocol. `webapp/backend/app/invoice_parser.py` only extracts descriptions; `webapp/backend/app/tariffai_client.py` is the HTTP boundary to TariffAI.
-- `tariffai/app/main.py` exposes `/classify` and `/classify/batch`; `tariffai/app/graph.py` runs preprocess → retrieval → LLM classification. Qdrant stores only the HS catalogue, not invoices or results.
+- `tariffai/app/main.py` exposes `/classify` and `/classify/batch`; `tariffai/app/graph.py` runs preprocess → retrieval → LLM classification → assessment → deep reasoning. Qdrant stores only the HS catalogue, not invoices or results.
+- `tariffai/app/reasoning.py` owns the second LLM pass (catalogue reasoning + clarifying questions) and `tariffai/app/hs_catalogue.py` the in-memory copy of the ingested HS catalogue. Both are cache/read-only; they never write to Qdrant.
 - No invoice/result persistence exists. Frontend state is request-local; do not add persistence assumptions without an explicit requirement.
 
 ## Commands
@@ -41,6 +42,8 @@ docker compose up -d --build
 - The webapp→TariffAI payloads are strict: `extra="forbid"`. Provider/model selection and Azure key overrides must not be reintroduced; Azure access uses managed identity only.
 - Invoice routes carry one `trade` context (`trade_mode`, `origin_country`, `dispatch_country`) for the whole invoice: a nested `trade` object in JSON bodies, flat form fields in the multipart upload, and the same nested object towards TariffAI.
 - NDJSON events are `stage`, `ready`, `item`, `done`, and `error`. `item.index` may arrive out of order; the frontend reorders by index and must preserve `line_number`. A stream is incomplete without `done`.
+- `ClassifyResponse.status` is `classified`, `ambiguous`, `needs_clarification`, or `error`. `needs_clarification` carries `result.clarifying_questions` (each with `id`, `question`, `hint`, `allow_free_text` and `options`).
+- Clarifying questions are capped at 3 per line. The broker's answers travel back as `clarification_answers` (`question_id`, `question`, `answer`) on `ClassifyRequest` and on the webapp `POST /api/classify` body; there is no store of previous rounds.
 - Frontend types in `webapp/frontend/src/types.ts` mirror backend wire shapes. Update both sides and the relevant API tests when changing a contract.
 - UI strings live in `webapp/frontend/src/i18n/strings.ts`; `dict.es` and `dict.en` must retain the same shape. Add translations in both languages.
 - HS codes are 6 digits. The app may show an original suggestion, but user-accepted/manual codes are review state only; no endpoint persists the override.

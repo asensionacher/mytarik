@@ -20,6 +20,27 @@ export interface HierarchyEntry {
   description: string;
 }
 
+export interface ClarificationOption {
+  value: string;
+  label: string;
+  code?: string | null;
+  description?: string | null;
+}
+
+export interface ClarificationQuestion {
+  id: string;
+  question: string;
+  hint?: string;
+  allow_free_text?: boolean;
+  options: ClarificationOption[];
+}
+
+export interface ClarificationAnswer {
+  question_id?: string;
+  question?: string;
+  answer: string;
+}
+
 export interface Hierarchy {
   section?: HierarchyEntry;
   chapter?: HierarchyEntry;
@@ -43,9 +64,12 @@ export interface ClassificationResult {
   output_tokens: number;
   total_tokens: number;
   thinking: string | null;
+  clarifying_questions: ClarificationQuestion[];
+  clarification_answers: ClarificationAnswer[];
+  reasoning_reasons: string[];
 }
 
-export type ClassifyStatus = "classified" | "ambiguous" | "error";
+export type ClassifyStatus = "classified" | "ambiguous" | "needs_clarification" | "error";
 
 export interface ClassifyResponse {
   status: ClassifyStatus;

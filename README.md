@@ -143,6 +143,26 @@ HS propuesto o **cambiarlo** por otro de 6 dígitos (y restablecer el original).
 Las revisiones son estado de la sesión: no se envían a ningún servicio ni se
 persisten.
 
+### Cuando la IA necesita preguntarte algo
+
+La primera pasada del clasificador no siempre es suficiente. Cuando la confianza
+queda por debajo de **0,75**, cuando los dos mejores candidatos están empatados
+o separados por un margen del **0,1 %**, o cuando la descripción es demasiado
+corta, TariffAI vuelve a razonar sobre el **catálogo HS completo** (todas las
+subpartidas de las partidas candidatas, tal como se ingirieron desde el CSV del
+Harmonized System). En esa segunda pasada el modelo puede:
+
+- **fijar el código** con una nueva cadena de razonamiento, o
+- **preguntarte** hasta **3 cosas** (con botones y/o escritura libre) para
+  distinguir los códigos que sólo se diferencian por un atributo (material,
+  forma, uso, composición…).
+
+Cuando una línea queda pendiente, la tabla muestra el estado *Necesita
+aclaración* y un formulario con las preguntas. Al responderlas, la UI vuelve a
+enviar esa línea a `/api/classify` con `clarification_answers`; TariffAI razona
+con la transcripción y devuelve el código definitivo (o, si aún falta algo, las
+preguntas que queden). Las respuestas son estado de la sesión: no se persisten.
+
 La interfaz muestra la subida, la extracción de descripciones, el tiempo
 transcurrido y el número real de líneas procesadas. Los resultados aparecen en
 cuanto termina cada línea, sin esperar a toda la factura, y mantienen la
@@ -182,6 +202,14 @@ los resultados ya recibidos permanecen visibles.
 | POST   | `/api/invoice/upload`      | `multipart/form-data` con `file` (pdf/txt/png/jpg/webp), `trade_mode` (`import`\|`export`), `origin_country` y `dispatch_country` (ISO-2) |
 | POST   | `/api/classify`            | `{"description": "..."}` → clasificación de una línea       |
 | POST   | `/api/classify/raw`        | Pega texto directo, mismo comportamiento que un `.txt`     |
+
+`/api/classify` admite además `clarification_answers` (lista de
+`{"question_id", "question", "answer"}`, máximo 3) para cerrar una línea que
+TariffAI dejó pendiente: el modelo vuelve a razonar con la transcripción de
+las respuestas y devuelve el código definitivo o las preguntas que queden. La
+respuesta incluye `status` (`classified`, `ambiguous`, `needs_clarification` o
+`error`) y, cuando hay preguntas, `result.clarifying_questions` con las
+opciones de botón de cada pregunta.
 
 El contexto comercial es **obligatorio** en las rutas de factura (`/api/invoice/upload`
 y `/api/classify/raw`): un solo contexto por factura, con `trade_mode`

@@ -50,6 +50,24 @@ def _build_models():
         code: str = ""
         description: str = ""
 
+    class ClarificationOption(BaseModel):
+        value: str = ""
+        label: str = ""
+        code: str | None = None
+        description: str | None = None
+
+    class ClarificationQuestion(BaseModel):
+        id: str = ""
+        question: str = ""
+        hint: str = ""
+        allow_free_text: bool = True
+        options: list[ClarificationOption] = Field(default_factory=list)
+
+    class ClarificationAnswer(BaseModel):
+        question_id: str = ""
+        question: str = ""
+        answer: str = Field(..., min_length=1)
+
     class ClassificationResult(BaseModel):
         input_text: str
         cleaned_text: str = ""
@@ -65,16 +83,19 @@ def _build_models():
         output_tokens: int = 0
         total_tokens: int = 0
         thinking: str | None = None
+        clarifying_questions: list[ClarificationQuestion] = Field(default_factory=list)
+        clarification_answers: list[ClarificationAnswer] = Field(default_factory=list)
+        reasoning_reasons: list[str] = Field(default_factory=list)
 
     class ClassifyResponse(BaseModel):
-        status: Literal["classified", "ambiguous", "error"]
+        status: Literal["classified", "ambiguous", "needs_clarification", "error"]
         result: ClassificationResult | None = None
         error: str | None = None
 
-    return ClassifyResponse, ClassificationResult, AlternativeCode
+    return ClassifyResponse, ClassificationResult, AlternativeCode, ClarificationAnswer
 
 
-ClassifyResponse, ClassificationResult, AlternativeCode = _build_models()  # type: ignore[assignment]
+ClassifyResponse, ClassificationResult, AlternativeCode, ClarificationAnswer = _build_models()  # type: ignore[assignment]
 
 
 # ── Cliente ─────────────────────────────────────────────────────────────
@@ -119,10 +140,13 @@ class TariffAIClient:
         description: str,
         language: ResponseLanguage = "en",
         trade: dict[str, Any] | None = None,
+        clarification_answers: list[dict[str, Any]] | None = None,
     ) -> ClassifyResponse:
         payload: dict = {"description": description, "language": language}
         if trade is not None:
             payload["trade"] = trade
+        if clarification_answers:
+            payload["clarification_answers"] = clarification_answers
         async with asyncio.timeout(self.timeout):
             resp = await self.client.post("/classify", json=payload)
             resp.raise_for_status()

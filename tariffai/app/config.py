@@ -25,3 +25,14 @@ BM25_WEIGHT = 0.4
 
 # --- Classification ---
 CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.7"))
+
+# --- Deep reasoning (Stage 4) + human in the loop ---
+# Below this confidence the pipeline reasons again over the HS catalogue.
+REASONING_CONFIDENCE_THRESHOLD = float(os.getenv("REASONING_CONFIDENCE_THRESHOLD", "0.75"))
+# Two candidates are considered tied when their relative margin is <= 0.1%.
+TIE_MARGIN_THRESHOLD = float(os.getenv("TIE_MARGIN_THRESHOLD", "0.001"))
+# A description shorter than this is too vague to classify without asking.
+MIN_QUERY_CHARS = int(os.getenv("MIN_QUERY_CHARS", "25"))
+MIN_QUERY_WORDS = int(os.getenv("MIN_QUERY_WORDS", "4"))
+# Maximum clarifying questions the model may ask a human for a single line.
+MAX_CLARIFYING_QUESTIONS = int(os.getenv("MAX_CLARIFYING_QUESTIONS", "3"))

@@ -516,3 +516,134 @@ def test_unsupported_response_language_is_rejected(path):
             payload["trade"] = TRADE
         response = client.post(path, json=payload)
     assert response.status_code == 422
+
+
+# ── Human in the loop: aclaraciones ─────────────────────────────────────
+
+CLARIFICATION = {
+    "question_id": "q1",
+    "question": "¿De qué tejido son los pantalones?",
+    "answer": "Algodón",
+}
+
+
+def test_classify_route_forwards_the_clarification_answers(monkeypatch):
+    requests = []
+
+    def handle(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(200, json={"status": "classified", "result": None, "error": None})
+
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def make_client():
+        client = TariffAIClient(base_url="http://tariffai")
+        async with httpx.AsyncClient(
+            base_url=client.base_url, transport=httpx.MockTransport(handle),
+        ) as transport:
+            client._client = transport
+            yield client
+
+    monkeypatch.setattr(main, "make_client", make_client)
+    response = TestClient(main.app).post("/api/classify", json={
+        "description": "cotton shirts", "trade": TRADE,
+        "clarification_answers": [CLARIFICATION],
+    })
+
+    assert response.status_code == 200
+    assert requests[0]["clarification_answers"] == [CLARIFICATION]
+    assert requests[0]["trade"] == TRADE
+
+
+def test_classify_route_omits_the_answers_when_there_are_none(monkeypatch):
+    requests = []
+
+    def handle(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(200, json={"status": "classified", "result": None, "error": None})
+
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def make_client():
+        client = TariffAIClient(base_url="http://tariffai")
+        async with httpx.AsyncClient(
+            base_url=client.base_url, transport=httpx.MockTransport(handle),
+        ) as transport:
+            client._client = transport
+            yield client
+
+    monkeypatch.setattr(main, "make_client", make_client)
+    response = TestClient(main.app).post("/api/classify", json={
+        "description": "cotton shirts", "trade": TRADE,
+    })
+
+    assert response.status_code == 200
+    assert "clarification_answers" not in requests[0]
+
+
+def test_classify_route_returns_the_pending_questions(monkeypatch):
+    payload = {
+        "status": "needs_clarification",
+        "result": {
+            "input_text": "cotton shirts",
+            "confidence": 0.5,
+            "clarifying_questions": [{
+                "id": "q1",
+                "question": "¿De qué tejido son los pantalones?",
+                "hint": "620462 y 620463 sólo se diferencian por el material.",
+                "allow_free_text": True,
+                "options": [
+                    {"value": "cotton", "label": "Algodón", "code": "620462"},
+                    {"value": "other", "label": "Otra materia", "code": "620463"},
+                ],
+            }],
+        },
+        "error": None,
+    }
+
+    def handle(request):
+        return httpx.Response(200, json=payload)
+
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def make_client():
+        client = TariffAIClient(base_url="http://tariffai")
+        async with httpx.AsyncClient(
+            base_url=client.base_url, transport=httpx.MockTransport(handle),
+        ) as transport:
+            client._client = transport
+            yield client
+
+    monkeypatch.setattr(main, "make_client", make_client)
+    response = TestClient(main.app).post("/api/classify", json={
+        "description": "cotton shirts", "trade": TRADE,
+    })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "needs_clarification"
+    questions = body["result"]["clarifying_questions"]
+    assert len(questions) == 1
+    assert questions[0]["question"] == "¿De qué tejido son los pantalones?"
+    assert questions[0]["options"][1]["code"] == "620463"
+
+
+def test_classify_route_rejects_more_answers_than_the_budget():
+    client = TestClient(main.app)
+    response = client.post("/api/classify", json={
+        "description": "cotton shirts",
+        "clarification_answers": [CLARIFICATION] * 4,
+    })
+    assert response.status_code == 422
+
+
+def test_classify_route_rejects_answers_without_text():
+    client = TestClient(main.app)
+    response = client.post("/api/classify", json={
+        "description": "cotton shirts",
+        "clarification_answers": [{"question_id": "q1", "question": "¿?", "answer": ""}],
+    })
+    assert response.status_code == 422

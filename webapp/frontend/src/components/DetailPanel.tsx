@@ -123,6 +123,41 @@ export function DetailPanel({ response }: Props) {
         </section>
       ) : null}
 
+      {result.clarification_answers?.length ? (
+        <section>
+          <div className="text-xs uppercase tracking-wide text-slate-500">{s.answers}</div>
+          <ul className="mt-1 space-y-1">
+            {result.clarification_answers.map((answer, index) => (
+              <li
+                key={`${answer.question_id ?? index}`}
+                className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs"
+              >
+                <div className="font-medium text-blue-900">{answer.question}</div>
+                <div className="mt-0.5 text-blue-800">{answer.answer}</div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {result.reasoning_reasons?.length ? (
+        <section>
+          <div className="text-xs uppercase tracking-wide text-slate-500">
+            {s.reasoningReasons}
+          </div>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {result.reasoning_reasons.map((reason) => (
+              <span
+                key={reason}
+                className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] text-indigo-700"
+              >
+                {reason}
+              </span>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <section className="text-xs text-slate-400">{s.time(result.processing_time_ms)}</section>
 
       {result.thinking ? (

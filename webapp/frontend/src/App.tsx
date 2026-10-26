@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { ApiError, classifyRaw, fetchHealth, uploadInvoice } from "./api";
+import { classifyRaw, fetchHealth, uploadInvoice } from "./api";
+import { humanizeError } from "./errors";
 import { InvoiceUpload } from "./components/InvoiceUpload";
 import { TextInput } from "./components/TextInput";
 import { ResultTable } from "./components/ResultTable";
@@ -12,6 +13,7 @@ import {
 } from "./i18n/strings";
 import type {
   ClassificationProgress,
+  ClassifyResponse,
   HealthResponse,
   InvoiceUploadResponse,
   TradeDetails,
@@ -39,6 +41,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [result, setResult] = useState<InvoiceUploadResponse | null>(null);
+  // Líneas resueltas por el usuario tras responder a las preguntas de
+  // aclaración; sustituyen a la clasificación original de esa línea.
+  const [resolved, setResolved] = useState<Record<number, ClassifyResponse>>({});
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [progress, setProgress] = useState<ClassificationProgress | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -103,6 +108,7 @@ export default function App() {
     setError(null);
     setWarning(null);
     setResult(null);
+    setResolved({});
     setElapsed(0);
     setProgress({ stage: "uploading", completed: 0, total: 0, invoice: null });
     setLoading(true);
@@ -124,6 +130,7 @@ export default function App() {
     setError(null);
     setWarning(null);
     setResult(null);
+    setResolved({});
     setElapsed(0);
     setProgress({ stage: "parsing", completed: 0, total: 0, invoice: null });
     setLoading(true);
@@ -146,11 +153,13 @@ export default function App() {
       return { in: 0, out: 0, all: 0, label: "" };
     let inn = 0;
     let outt = 0;
-    for (const it of result.items) {
-      const r = it.classification.result;
-      if (!r) continue;
-      inn += r.prompt_tokens ?? 0;
-      outt += r.output_tokens ?? 0;
+    for (const [index, it] of result.items.entries()) {
+      const lineIndex = (it.line_number ?? index + 1) - 1;
+      const r = resolved[lineIndex] ?? it.classification;
+      const result = r.result;
+      if (!result) continue;
+      inn += result.prompt_tokens ?? 0;
+      outt += result.output_tokens ?? 0;
     }
     const all = inn + outt;
     const locale = currentLang === "en" ? "en-US" : "es-ES";
@@ -159,7 +168,7 @@ export default function App() {
       ? ""
       : `${fmt(all)} tokens (${fmt(inn)} ↑ entrada / ${fmt(outt)} ↓ salida)`;
     return { in: inn, out: outt, all, label };
-  }, [result, currentLang]);
+  }, [result, resolved, currentLang]);
 
   const countryName = (code: string) =>
     countryOptions.find((country) => country.code === code)?.name ?? code;
@@ -371,7 +380,16 @@ export default function App() {
                 {countryName(result.trade.dispatch_country)}
               </span>
             </div>
-            {(result.items.length > 0 || !loading) && <ResultTable items={result.items} />}
+            {(result.items.length > 0 || !loading) && (
+              <ResultTable
+                items={result.items}
+                trade={result.trade}
+                resolved={resolved}
+                onResolved={(index, response) =>
+                  setResolved((current) => ({ ...current, [index]: response }))
+                }
+              />
+            )}
           </section>
         )}
       </main>
@@ -388,20 +406,6 @@ export default function App() {
       </footer>
     </div>
   );
-}
-
-function humanizeError(e: unknown): string {
-  const dict = t();
-  if (e instanceof ApiError) {
-    const body = e.message.toLowerCase();
-    if (e.status === 413 || body.includes("límite")) return dict.errors.tooBig;
-    if (e.status === 400 || body.includes("no soportad")) return dict.errors.format;
-    if (e.status === 504) return dict.errors.timeout;
-    if (e.status === 502 || body.includes("tariffai")) return dict.errors.noApi;
-    if (e.status === 0 || body.includes("failed to fetch")) return dict.errors.network;
-    return e.message || dict.errors.submit;
-  }
-  return dict.errors.submit;
 }
 
 function LangSwitcher({ current, onChange }: { current: Lang; onChange: (l: Lang) => void }) {

@@ -19,13 +19,23 @@ from app.schemas import (
     ClassifyResponse, ClassificationResult,
 )
 from app.graph import classify_cargo
+from app.hs_catalogue import initialize_catalogue
 from app.hs_retriever import initialize_retriever
 from app.config import QDRANT_HOST, QDRANT_PORT, QDRANT_COLLECTION
 
 
+def _status_for(result: ClassificationResult) -> str:
+    """Map a classification result to the response status."""
+    if result.clarifying_questions:
+        return "needs_clarification"
+    if result.is_ambiguous:
+        return "ambiguous"
+    return "classified"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Pre-warm the retriever on startup."""
+    """Pre-warm the retriever and the HS catalogue on startup."""
     print("[TariffAI] Starting up...")
     try:
         initialize_retriever()
@@ -33,6 +43,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[TariffAI] ⚠️  Retriever init failed (Qdrant may not be running): {e}")
         print("[TariffAI]    The API will start but /classify will fail until Qdrant is available.")
+    try:
+        count = initialize_catalogue()
+        print(f"[TariffAI] ✅ HS catalogue ready: {count} entries")
+    except Exception as e:
+        print(f"[TariffAI] ⚠️  Catalogue init failed (deep reasoning will be degraded): {e}")
     yield
     print("[TariffAI] Shutting down.")
 
@@ -65,19 +80,28 @@ def classify_endpoint(req: ClassifyRequest):
     1. Preprocesses the raw text (regex, no LLM)
     2. Retrieves top candidates via hybrid search (Qdrant + BM25, no LLM)
     3. Makes ONE LLM call to select the best code with reasoning
+    4. When the confidence is low, the candidates are tied or the description
+       is too short, reasons again over the HS catalogue
+    5. The deep reasoning either settles the code or asks the broker up to
+       three clarifying questions (status "needs_clarification")
 
     Returns the classification result including:
     - The recommended HS code
     - Full Chapter → Heading → Subheading reasoning chain
     - Confidence score
     - Alternative codes (for ambiguous cases)
+    - Clarifying questions (when the broker has to provide information)
 
     Uses the server-configured Azure Foundry deployment only.
     """
     try:
-        result = classify_cargo(req.description, language=req.language, trade=req.trade)
-        status = "ambiguous" if result.is_ambiguous else "classified"
-        return ClassifyResponse(status=status, result=result)
+        result = classify_cargo(
+            req.description,
+            language=req.language,
+            trade=req.trade,
+            clarification_answers=req.clarification_answers,
+        )
+        return ClassifyResponse(status=_status_for(result), result=result)
     except Exception as e:
         traceback.print_exc()
         return ClassifyResponse(status="error", error=str(e))
@@ -93,8 +117,7 @@ def batch_classify_endpoint(req: BatchClassifyRequest):
     for desc in req.descriptions:
         try:
             result = classify_cargo(desc, language=req.language, trade=req.trade)
-            status = "ambiguous" if result.is_ambiguous else "classified"
-            results.append(ClassifyResponse(status=status, result=result))
+            results.append(ClassifyResponse(status=_status_for(result), result=result))
         except Exception as e:
             results.append(ClassifyResponse(status="error", error=str(e)))
     return results

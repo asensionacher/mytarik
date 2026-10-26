@@ -62,7 +62,7 @@ Instead of naive chunk-and-embed, TariffAI uses a **staged retrieval + reasoning
 |---|---|
 | **Hybrid search (Semantic + BM25)** | BM25 catches exact domain terms like "basmati" that embeddings blur into generic "rice". Semantic search handles synonyms and rephrasings. |
 | **Reciprocal Rank Fusion (RRF)** | Rank-based fusion avoids score distribution mismatch between Qdrant cosine scores and BM25 term-frequency scores |
-| **Single LLM call at the end** | Cost efficiency: ~$0.001/classification. Stages 1–2 are deterministic, fast, and free |
+| **Single LLM call at the end** | Cost efficiency: ~$0.001/classification. Stages 1–2 are deterministic, fast, and free. A second call is made only when the first pass is not good enough (low confidence, tied candidates, very short description, or pending broker answers) |
 | **Full hierarchy in embedding text** | Embedding "Section XI: Textiles. Chapter 62: Apparel. 620462: Of cotton" gives much richer semantic context than just "Of cotton" |
 | **Regex preprocessing (not LLM)** | B/L noise patterns are finite and well-defined. Regex is deterministic, free, and sub-millisecond |
 
@@ -73,16 +73,30 @@ Instead of naive chunk-and-embed, TariffAI uses a **staged retrieval + reasoning
 TariffAI is orchestrated as a **LangGraph state machine** — providing clean node boundaries for debugging, logging, and future audit trail integration:
 
 ```
-START → preprocess → retrieve → classify ──→ END
-                                    │
-                             (confidence < 0.7)
-                                    │
-                                    ▼
-                          ambiguous_output ──→ END
-                        (top-3 with trade-offs)
+START → preprocess → retrieve → classify → assess → finalize ──→ END
+                                          │
+                                   (needs reasoning)
+                                          │
+                                          ▼
+                                        reason ──→ finalize
 ```
 
-The `ambiguous_output` node is a hook for future **human-in-the-loop review** — when the classifier isn't confident enough, it surfaces the top-3 candidates with trade-off explanations so a customs broker can make the final call.
+`assess` decides whether the first pass is good enough. The `reason` node runs
+a **second LLM call over the full HS catalogue** (every 6-digit subheading under
+the candidate headings, read from the ingested Harmonized System catalogue) when:
+
+| Trigger              | Default   | Meaning                                                        |
+| -------------------- | --------- | -------------------------------------------------------------- |
+| `low_confidence`     | `< 0.75`  | The first pass is not confident enough                          |
+| `tied_candidates`    | `0.1 %`   | The two best candidates are separated by a razor-thin margin   |
+| `short_query`        | 25 chars / 4 words | There is not enough information to classify at all      |
+| `human_answers`      | —         | The broker answered the clarifying questions of a previous round |
+
+The deep reasoning either settles the code with a full reasoning chain, or asks
+the broker **up to 3 clarifying questions** (answerable with buttons and/or
+free text) when a single missing attribute is what separates two plausible
+codes. The answer round-trip is stateless: the broker's answers travel back in
+`clarification_answers` and the model reasons again with the transcript.
 
 ---
 
@@ -97,6 +111,8 @@ tariffai/
 │   ├── cargo_preprocessor.py     # Stage 1: Regex noise stripping (No LLM)
 │   ├── hs_retriever.py           # Stage 2: Qdrant + BM25 hybrid search (No LLM)
 │   ├── llm_classifier.py         # Stage 3: Azure Foundry classification (1 LLM call)
+│   ├── hs_catalogue.py           # Stage 4 support: full HS catalogue in memory (No LLM)
+│   ├── reasoning.py              # Stage 4/5: deep reasoning + clarifying questions
 │   ├── llm_provider.py           # MAI-Thinking-1 via managed identity
 │   ├── translation.py            # Azure Translator Text Translation
 │   ├── graph.py                  # LangGraph state machine orchestrator
