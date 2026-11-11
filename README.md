@@ -53,18 +53,28 @@ mytarik/
 cp .env.example .env
 ```
 
-Solo se configuran tres variables: `AZURE_AI_PROJECT_ENDPOINT`,
+Solo se configuran tres variables por defecto: `AZURE_AI_PROJECT_ENDPOINT`,
 `AZURE_AI_MODEL_DEPLOYMENT` y `AZURE_TRANSLATOR_ENDPOINT`. Los ejemplos incluyen
 el proyecto `proj-default`, el deployment `MAI-Thinking-1` y el endpoint de
 Translator facilitados. No se necesitan claves, secretos, tenant ni client ID.
 
+Para usar un proveedor local compatible con OpenAI en lugar de Azure Foundry,
+configura `LLM_PROVIDER=local`, `LOCAL_LLM_BASE_URL` y `LOCAL_LLM_MODEL`;
+opcionalmente puedes definir `LOCAL_LLM_API_KEY` (por ejemplo `unused` para
+servidores que no la comprueban) y `LOCAL_LLM_TIMEOUT`. `azure` sigue siendo el
+valor por defecto; no hay selector de proveedor ni de modelo en la API ni en la
+UI, y los errores del proveedor elegido se devuelven tal cual, sin fallback
+silencioso al otro proveedor.
+
 La autenticación usa exclusivamente `ManagedIdentityCredential`: no hay fallback
 a claves ni a `az login`. Docker local fuera de Azure no dispone de esa identidad;
 ejecuta la API en un recurso Azure con identidad administrada y acceso al endpoint
-de identidad desde el contenedor. La clasificación siempre usa Foundry; la UI y
-las APIs JSON ya no aceptan elegir proveedor ni modelo. La traducción al inglés
-usa Azure Translator Text Translation, y un fallo de traducción se devuelve como
-error de clasificación en lugar de continuar con el texto original.
+de identidad desde el contenedor. Con el valor por defecto `LLM_PROVIDER=azure`,
+la clasificación usa Foundry (`MAI-Thinking-1`) y la traducción usa Azure
+Translator Text Translation; con `LLM_PROVIDER=local`, la clasificación usa el
+servidor local compatible con OpenAI, pero la traducción sigue necesitando Azure
+Translator. Un fallo de traducción se devuelve como error de clasificación en
+lugar de continuar con el texto original.
 
 ### 2) Levantar todo (primera vez)
 
