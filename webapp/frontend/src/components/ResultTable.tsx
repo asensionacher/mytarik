@@ -11,6 +11,8 @@ interface Props {
   reviews: Record<number, CodeReview>;
   onReview: (index: number, review: CodeReview | null) => void;
   onAnswer: (index: number, answers: ClarificationAnswer[]) => Promise<void>;
+  onRetry?: (index: number, lineIndex: number) => void | Promise<void>;
+  retrying?: Record<number, boolean>;
   disabled?: boolean;
 }
 
@@ -35,7 +37,7 @@ function statusBadge(status: "classified" | "ambiguous" | "error"): string {
 }
 
 export function ResultTable({
-  items, reviews, onReview, onAnswer, disabled = false,
+  items, reviews, onReview, onAnswer, onRetry, retrying = {}, disabled = false,
 }: Props) {
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const s = t().results;
@@ -113,6 +115,8 @@ export function ResultTable({
                   await onAnswer(idx, answers);
                   resetCode(lineIndex);
                 }}
+                onRetry={onRetry ? () => onRetry(idx, lineIndex) : undefined}
+                isRetrying={retrying[idx] ?? false}
                 disabled={disabled}
               />
             );
@@ -141,13 +145,16 @@ interface RowProps {
   onReset: () => void;
   onToggle: () => void;
   onAnswer: (answers: ClarificationAnswer[]) => Promise<void>;
+  onRetry?: () => void | Promise<void>;
+  isRetrying: boolean;
   disabled: boolean;
 }
 
 function FragmentRow(props: RowProps) {
   const {
     idx, it, result, open, status, code, suggestedCode, review, hsDesc, conf,
-    statusColors, confidenceColors, onAccept, onSave, onReset, onToggle, onAnswer, disabled,
+    statusColors, confidenceColors, onAccept, onSave, onReset, onToggle, onAnswer,
+    onRetry, isRetrying, disabled,
   } = props;
   const s = t().results;
   const [editing, setEditing] = useState(false);
@@ -233,6 +240,16 @@ function FragmentRow(props: RowProps) {
             </form>
           ) : (
             <div className="mt-2 flex flex-wrap gap-2">
+              {status === "error" && onRetry && (
+                <button
+                  type="button"
+                  onClick={() => void onRetry()}
+                  disabled={isRetrying || disabled}
+                  className="text-xs font-medium text-rose-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isRetrying ? s.retrying : s.retry}
+                </button>
+              )}
               {!review && !result?.clarification_question && suggestedCode && isValidHsCode(suggestedCode) && (
                 <button
                   type="button"
@@ -294,6 +311,11 @@ function FragmentRow(props: RowProps) {
               </span>
             ) : null}
           </div>
+          {status === "error" && it.classification.error && (
+            <p className="mt-1 max-w-xs text-[11px] leading-snug text-rose-700">
+              {it.classification.error}
+            </p>
+          )}
         </td>
         <td className="px-3 py-2 text-right">
           <button
@@ -305,7 +327,7 @@ function FragmentRow(props: RowProps) {
           </button>
         </td>
       </tr>
-      {(open || result?.clarification_question || result?.needs_human_review) && (
+      {(open || status === "error" || result?.clarification_question || result?.needs_human_review) && (
         <tr className="bg-slate-50/50">
           <td colSpan={7} className="px-6 py-4">
             <div className="mb-2 text-xs uppercase tracking-wide text-slate-400">
@@ -314,6 +336,21 @@ function FragmentRow(props: RowProps) {
             {review?.changed && (
               <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                 {s.originalProposal}
+              </div>
+            )}
+            {status === "error" && (
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                <span className="break-words">{it.classification.error ?? s.status.error}</span>
+                {onRetry && (
+                  <button
+                    type="button"
+                    onClick={() => void onRetry()}
+                    disabled={isRetrying || disabled}
+                    className="shrink-0 rounded-lg border border-rose-300 bg-white px-2.5 py-1 font-medium text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isRetrying ? s.retrying : s.retry}
+                  </button>
+                )}
               </div>
             )}
             {result && (result.clarification_question || result.needs_human_review || result.clarification_answers?.length > 0) && (

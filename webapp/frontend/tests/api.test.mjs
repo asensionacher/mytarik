@@ -30,7 +30,7 @@ const source = (await readFile(new URL("../src/api.ts", import.meta.url), "utf8"
 const apiURL = moduleURL(source);
 const {
   ApiError, answerClarification, classifyRaw, uploadInvoice, evaluateCustomsOperation,
-  resolveTaricCodes,
+  resolveTaricCodes, retryLine,
 } = await import(apiURL);
 
 const customsSource = (await readFile(
@@ -66,6 +66,22 @@ const resultTableSource = (await readFile(
   .replace('from "./DetailPanel"', `from "${detailPanelURL}"`)
   .replace('from "./ClarificationPanel"', `from "${clarificationPanelURL}"`);
 const { createCodeReview, isValidHsCode } = await import(componentModuleURL(resultTableSource));
+
+// Segunda instancia de ResultTable con el React real: la de arriba usa un
+// stub que no produce elementos, así que no se puede renderizar.
+const realReactURL = import.meta.resolve("react");
+const renderableResultTableSource = (await readFile(
+  new URL("../src/components/ResultTable.tsx", import.meta.url), "utf8",
+))
+  .replace(
+    'import { useState } from "react";',
+    'import React, { useState } from "react";',
+  )
+  .replace('from "react"', `from "${realReactURL}"`)
+  .replace('from "../i18n/strings"', `from "${stringsURL}"`)
+  .replace('from "./DetailPanel"', `from "${detailPanelURL}"`)
+  .replace('from "./ClarificationPanel"', `from "${clarificationPanelURL}"`);
+const { ResultTable } = await import(componentModuleURL(renderableResultTableSource));
 
 const trade = { trade_mode: "import", origin_country: "ES", dispatch_country: "CN" };
 const invoice = { filename: "text", source: "raw", items_count: 0, items: [], trade };
@@ -358,5 +374,83 @@ test("offers the customs measures only for the lines with a valid HS code", () =
   }));
   assert.match(markup, /Evaluar medidas aduaneras/);
   assert.match(markup, /Medidas aduaneras/);
+  setLang("en");
+});
+
+test("reclassifies a single failed line without the clarification history", async (t) => {
+  const original = getLang();
+  t.after(() => setLang(original));
+  setLang("es");
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    requests.push({ url, body: JSON.parse(options.body) });
+    return Response.json({
+      status: "classified",
+      result: { primary_code: "610910", primary_description: "Camisetas" },
+      error: null,
+    });
+  });
+  const response = await retryLine("Camisetas de algodón", trade);
+  assert.equal(response.status, "classified");
+  assert.equal(requests[0].url, "/api/classify");
+  assert.deepEqual(requests[0].body, {
+    description: "Camisetas de algodón",
+    trade,
+    language: "es",
+    clarification_answers: [],
+  });
+  setLang("en");
+});
+
+test("offers a retry action only for the line that failed", () => {
+  setLang("es");
+  const items = [
+    {
+      line_number: 1,
+      description: "Camisetas",
+      classification: {
+        status: "classified",
+        result: { primary_code: "610910", primary_description: "Camisetas", confidence: 0.9 },
+        error: null,
+      },
+    },
+    {
+      line_number: 2,
+      description: "Café en grano",
+      classification: { status: "error", result: null, error: "TariffAI no respondió" },
+    },
+  ];
+  const markup = renderToStaticMarkup(React.createElement(ResultTable, {
+    items,
+    reviews: {},
+    onReview: () => {},
+    onAnswer: async () => {},
+    onRetry: () => {},
+  }));
+  // The failed line exposes the reason and a retry button.
+  assert.match(markup, /TariffAI no respondió/);
+  assert.match(markup, /Reintentar/);
+  // The classified line does not.
+  assert.equal(markup.match(/Reintentar/g).length, 2);
+  setLang("en");
+});
+
+test("shows the retry button as busy while the line is being reclassified", () => {
+  setLang("es");
+  const items = [{
+    line_number: 1,
+    description: "Café en grano",
+    classification: { status: "error", result: null, error: "boom" },
+  }];
+  const markup = renderToStaticMarkup(React.createElement(ResultTable, {
+    items,
+    reviews: {},
+    onReview: () => {},
+    onAnswer: async () => {},
+    onRetry: () => {},
+    retrying: { 0: true },
+  }));
+  assert.match(markup, /Reintentando…/);
+  assert.doesNotMatch(markup, />Reintentar</);
   setLang("en");
 });

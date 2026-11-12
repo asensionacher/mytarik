@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ApiError, answerClarification, classifyRaw, fetchHealth, uploadInvoice } from "./api";
+import { ApiError, answerClarification, classifyRaw, fetchHealth, retryLine, uploadInvoice } from "./api";
 import { InvoiceUpload } from "./components/InvoiceUpload";
 import { TextInput } from "./components/TextInput";
 import { ResultTable } from "./components/ResultTable";
@@ -50,6 +50,8 @@ export default function App() {
   const [dispatchCountry, setDispatchCountry] = useState("");
   // Revisión de códigos HS: la acepta quien declara, la usa el motor de medidas.
   const [reviews, setReviews] = useState<Record<number, CodeReview>>({});
+  // Líneas cuyo reintento de clasificación está en curso.
+  const [retrying, setRetrying] = useState<Record<number, boolean>>({});
 
   // Re-render when language changes
   const [, setLangVersion] = useState(0);
@@ -173,6 +175,40 @@ export default function App() {
       items: current.items.map((entry, position) =>
         position === index ? { ...entry, classification: response } : entry),
     });
+  }
+
+  /**
+   * Reintenta la clasificación de una línea que falló.
+   *
+   * Sustituye la respuesta de la línea por la nueva cuando el reintento tiene
+   * éxito; si vuelve a fallar, se conserva el error anterior y se avisa, para
+   * que la fila siga mostrando el motivo del último fallo real.
+   */
+  async function handleRetry(index: number, lineIndex: number) {
+    if (!result) return;
+    const invoice = result;
+    const item = invoice.items[index];
+    if (!item) return;
+    setRetrying((current) => ({ ...current, [index]: true }));
+    setError(null);
+    try {
+      const response = await retryLine(item.description, invoice.trade);
+      if (response.status === "error" || !response.result) {
+        setError(response.error ?? dict.errors.submit);
+        return;
+      }
+      setResult((current) => !current || current.items[index] !== item ? current : {
+        ...current,
+        items: current.items.map((entry, position) =>
+          position === index ? { ...entry, classification: response } : entry),
+      });
+      // El código propuesto cambia: la revisión manual deja de ser válida.
+      handleReview(lineIndex, null);
+    } catch (e) {
+      setError(humanizeError(e));
+    } finally {
+      setRetrying((current) => ({ ...current, [index]: false }));
+    }
   }
 
   // Suma de tokens consumidos por toda la factura
@@ -412,6 +448,8 @@ export default function App() {
                 reviews={reviews}
                 onReview={handleReview}
                 onAnswer={handleAnswer}
+                onRetry={handleRetry}
+                retrying={retrying}
                 disabled={loading}
               />
             )}

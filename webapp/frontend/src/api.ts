@@ -96,6 +96,26 @@ export async function answerClarification(
   return jsonOrThrow<ClassifyResponse>(res);
 }
 
+/**
+ * Reclasifica una única línea que falló.
+ *
+ * Es el mismo endpoint que usa el panel de aclaraciones, pero sin historial de
+ * respuestas: el reintento parte de la descripción original de la factura.
+ */
+export async function retryLine(
+  description: string,
+  trade: TradeDetails,
+): Promise<ClassifyResponse> {
+  const res = await fetch("/api/classify", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      description, trade, language: getLang(), clarification_answers: [],
+    }),
+  });
+  return jsonOrThrow<ClassifyResponse>(res);
+}
+
 async function readProgress(
   res: Response, onProgress: (progress: ClassificationProgress) => void,
 ): Promise<InvoiceUploadResponse> {

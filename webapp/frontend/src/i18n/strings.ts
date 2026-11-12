@@ -100,6 +100,8 @@ export const dict = {
       manualDescription: "Descripción no disponible para el código manual.",
       originalProposal: "El detalle y la confianza corresponden al código propuesto originalmente.",
       invalidHsCode: "El código HS debe tener 6 dígitos.",
+      retry: "Reintentar",
+      retrying: "Reintentando…",
     },
     details: {
       cleaned: "Texto limpiado",
@@ -273,6 +275,8 @@ export const dict = {
       manualDescription: "No description is available for the manual code.",
       originalProposal: "The detail and confidence refer to the originally proposed code.",
       invalidHsCode: "The HS code must contain 6 digits.",
+      retry: "Retry",
+      retrying: "Retrying…",
     },
     details: {
       cleaned: "Cleaned text",
