@@ -13,10 +13,19 @@ QDRANT_COLLECTION = "hs_codes"
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
 EMBEDDING_DIM = 384  # dimension for multilingual-e5-small
 
+# --- LLM provider selection ---
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "azure").strip().lower()
+
 # --- Azure (system-assigned managed identity; no API keys) ---
 AZURE_AI_PROJECT_ENDPOINT = os.getenv("AZURE_AI_PROJECT_ENDPOINT", "").strip()
 AZURE_AI_MODEL_DEPLOYMENT = os.getenv("AZURE_AI_MODEL_DEPLOYMENT", "MAI-Thinking-1").strip()
 AZURE_TRANSLATOR_ENDPOINT = os.getenv("AZURE_TRANSLATOR_ENDPOINT", "").strip().rstrip("/")
+
+# --- Local OpenAI-compatible provider (optional; used only when LLM_PROVIDER=local) ---
+LOCAL_LLM_BASE_URL = os.getenv("LOCAL_LLM_BASE_URL", "").strip().rstrip("/")
+LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "").strip()
+LOCAL_LLM_API_KEY = os.getenv("LOCAL_LLM_API_KEY", "").strip()
+LOCAL_LLM_TIMEOUT = float(os.getenv("LOCAL_LLM_TIMEOUT", "120"))
 
 # --- Retrieval ---
 TOP_K_CANDIDATES = int(os.getenv("TOP_K_CANDIDATES", "10"))
