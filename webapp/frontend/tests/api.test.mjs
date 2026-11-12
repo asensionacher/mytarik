@@ -56,10 +56,13 @@ const clarificationPanelURL = moduleURL("export function ClarificationPanel() { 
 const clarificationSource = (await readFile(
   new URL("../src/components/ClarificationPanel.tsx", import.meta.url), "utf8",
 ))
-  .replace('import { useId, useState } from "react";', 'import React, { useId, useState } from "react";')
+  .replace(
+    'import { useEffect, useId, useRef, useState } from "react";',
+    'import React, { useEffect, useId, useRef, useState } from "react";',
+  )
   .replace('from "react"', `from "${import.meta.resolve("react")}"`)
   .replace('from "../i18n/strings"', `from "${stringsURL}"`);
-const { ClarificationPanel } = await import(componentModuleURL(clarificationSource));
+const { ClarificationPanel, isSelectedOption } = await import(componentModuleURL(clarificationSource));
 const codeDecisionModalURL = moduleURL(
   "export function CodeDecisionModal() { return null; } export function needsCodeDecision() { return false; }",
 );
@@ -204,6 +207,36 @@ test("shows answer buttons and a free-text input, but never a fourth question", 
   }));
   assert.doesNotMatch(exhausted, /<input|<button/);
   assert.match(exhausted, /revisión humana/);
+  setLang("en");
+});
+
+test("marks the chosen answer option while the AI is processing it", () => {
+  assert.equal(isSelectedOption("Punto", "Punto"), true);
+  assert.equal(isSelectedOption("Punto", "punto"), true);
+  assert.equal(isSelectedOption("Punto", " Plano"), false);
+  // Sin respuesta en curso no hay ninguna opción marcada.
+  assert.equal(isSelectedOption("Punto", null), false);
+  assert.equal(isSelectedOption("Punto", ""), false);
+});
+
+test("shows the thinking indicator and the selected option while answering", async () => {
+  setLang("es");
+  const result = {
+    clarification_answers: [],
+    clarification_question: { question: "¿Construcción?", options: ["Punto", "Plano"] },
+  };
+  let resolveAnswer;
+  const pending = new Promise((resolve) => { resolveAnswer = resolve; });
+  const markup = renderToStaticMarkup(React.createElement(ClarificationPanel, {
+    result, onAnswer: () => pending,
+  }));
+  // Antes de responder no hay indicador de pensamiento ni opción marcada.
+  assert.doesNotMatch(markup, /La IA está pensando/);
+  assert.doesNotMatch(markup, /aria-pressed="true"/);
+  // El panel ofrece la pregunta con sus opciones.
+  assert.match(markup, /¿Construcción\?/);
+  assert.match(markup, /Punto/);
+  resolveAnswer();
   setLang("en");
 });
 
