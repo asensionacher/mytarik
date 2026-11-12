@@ -3,6 +3,7 @@ import { t } from "../i18n/strings";
 import type { ClassificationResult, InvoiceItem, ClarificationAnswer, CodeReview } from "../types";
 import { DetailPanel } from "./DetailPanel";
 import { ClarificationPanel } from "./ClarificationPanel";
+import { CodeDecisionModal, needsCodeDecision } from "./CodeDecisionModal";
 
 export type { CodeReview };
 
@@ -40,6 +41,8 @@ export function ResultTable({
   items, reviews, onReview, onAnswer, onRetry, retrying = {}, disabled = false,
 }: Props) {
   const [openIdx, setOpenIdx] = useState<number | null>(null);
+  // Línea cuyo modal de decisión de código está abierto.
+  const [decisionIdx, setDecisionIdx] = useState<number | null>(null);
   const s = t().results;
 
   function acceptCode(index: number, code: string) {
@@ -63,67 +66,89 @@ export function ResultTable({
     );
   }
 
-  return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-      <div className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-500">
-        {s.itemsCount(items.length)}
-      </div>
-      <table className="min-w-full divide-y divide-slate-200">
-        <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-          <tr>
-            <th className="w-10 px-3 py-2 text-right">{s.columns.n}</th>
-            <th className="px-3 py-2 text-left">{s.columns.desc}</th>
-            <th className="w-52 px-3 py-2 text-left">{s.columns.code}</th>
-            <th className="px-3 py-2 text-left">{s.columns.hsDesc}</th>
-            <th className="w-24 px-3 py-2 text-right">{s.columns.conf}</th>
-            <th className="w-32 px-3 py-2 text-left">{s.columns.status}</th>
-            <th className="w-16 px-3 py-2"></th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {items.map((it, idx) => {
-            const lineIndex = (it.line_number ?? idx + 1) - 1;
-            const r = it.classification;
-            const result = r.result;
-            const status = r.status;
-            const suggestedCode = result?.primary_code ?? null;
-            const code = reviews[lineIndex]?.code ?? suggestedCode ?? "—";
-            const hsDesc = result?.primary_description ?? "";
-            const conf = result?.confidence ?? 0;
-            const open = openIdx === lineIndex;
+  const decisionItem = decisionIdx !== null ? items[decisionIdx] : null;
+  const decisionResult = decisionItem?.classification.result ?? null;
+  const decisionLineIndex = decisionIdx !== null
+    ? (decisionItem?.line_number ?? decisionIdx + 1) - 1
+    : 0;
 
-            return (
-              <FragmentRow
-                key={lineIndex}
-                idx={lineIndex}
-                it={it}
-                result={result}
-                open={open}
-                status={status}
-                code={code}
-                suggestedCode={suggestedCode}
-                review={reviews[lineIndex]}
-                hsDesc={hsDesc}
-                conf={conf}
-                statusColors={statusBadge(status)}
-                confidenceColors={confidenceColor(conf)}
-                onAccept={() => acceptCode(lineIndex, suggestedCode ?? "")}
-                onSave={(newCode) => saveCode(lineIndex, newCode, suggestedCode)}
-                onReset={() => resetCode(lineIndex)}
-                onToggle={() => setOpenIdx(open ? null : lineIndex)}
-                onAnswer={async (answers) => {
-                  await onAnswer(idx, answers);
-                  resetCode(lineIndex);
-                }}
-                onRetry={onRetry ? () => onRetry(idx, lineIndex) : undefined}
-                isRetrying={retrying[idx] ?? false}
-                disabled={disabled}
-              />
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+  return (
+    <>
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+        <div className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-500">
+          {s.itemsCount(items.length)}
+        </div>
+        <table className="min-w-full divide-y divide-slate-200">
+          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="w-10 px-3 py-2 text-right">{s.columns.n}</th>
+              <th className="px-3 py-2 text-left">{s.columns.desc}</th>
+              <th className="w-52 px-3 py-2 text-left">{s.columns.code}</th>
+              <th className="px-3 py-2 text-left">{s.columns.hsDesc}</th>
+              <th className="w-24 px-3 py-2 text-right">{s.columns.conf}</th>
+              <th className="w-32 px-3 py-2 text-left">{s.columns.status}</th>
+              <th className="w-16 px-3 py-2"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {items.map((it, idx) => {
+              const lineIndex = (it.line_number ?? idx + 1) - 1;
+              const r = it.classification;
+              const result = r.result;
+              const status = r.status;
+              const suggestedCode = result?.primary_code ?? null;
+              const code = reviews[lineIndex]?.code ?? suggestedCode ?? "—";
+              const hsDesc = result?.primary_description ?? "";
+              const conf = result?.confidence ?? 0;
+              const open = openIdx === lineIndex;
+
+              return (
+                <FragmentRow
+                  key={lineIndex}
+                  idx={lineIndex}
+                  it={it}
+                  result={result}
+                  open={open}
+                  status={status}
+                  code={code}
+                  suggestedCode={suggestedCode}
+                  review={reviews[lineIndex]}
+                  hsDesc={hsDesc}
+                  conf={conf}
+                  statusColors={statusBadge(status)}
+                  confidenceColors={confidenceColor(conf)}
+                  onAccept={() => acceptCode(lineIndex, suggestedCode ?? "")}
+                  onSave={(newCode) => saveCode(lineIndex, newCode, suggestedCode)}
+                  onReset={() => resetCode(lineIndex)}
+                  onToggle={() => setOpenIdx(open ? null : lineIndex)}
+                  onAnswer={async (answers) => {
+                    await onAnswer(idx, answers);
+                    resetCode(lineIndex);
+                  }}
+                  onRetry={onRetry ? () => onRetry(idx, lineIndex) : undefined}
+                  isRetrying={retrying[idx] ?? false}
+                  onOpenDecision={() => setDecisionIdx(idx)}
+                  disabled={disabled}
+                />
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {decisionResult && (
+        <CodeDecisionModal
+          result={decisionResult}
+          description={decisionItem?.description ?? ""}
+          onSelect={(code) => {
+            // La elección del declarante es una revisión manual del código.
+            acceptCode(decisionLineIndex, code);
+            setDecisionIdx(null);
+          }}
+          onClose={() => setDecisionIdx(null)}
+        />
+      )}
+    </>
   );
 }
 
@@ -147,6 +172,7 @@ interface RowProps {
   onAnswer: (answers: ClarificationAnswer[]) => Promise<void>;
   onRetry?: () => void | Promise<void>;
   isRetrying: boolean;
+  onOpenDecision: () => void;
   disabled: boolean;
 }
 
@@ -154,7 +180,7 @@ function FragmentRow(props: RowProps) {
   const {
     idx, it, result, open, status, code, suggestedCode, review, hsDesc, conf,
     statusColors, confidenceColors, onAccept, onSave, onReset, onToggle, onAnswer,
-    onRetry, isRetrying, disabled,
+    onRetry, isRetrying, onOpenDecision, disabled,
   } = props;
   const s = t().results;
   const [editing, setEditing] = useState(false);
@@ -248,6 +274,16 @@ function FragmentRow(props: RowProps) {
                   className="text-xs font-medium text-rose-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isRetrying ? s.retrying : s.retry}
+                </button>
+              )}
+              {result && needsCodeDecision(result) && (
+                <button
+                  type="button"
+                  onClick={onOpenDecision}
+                  disabled={disabled}
+                  className="text-xs font-medium text-amber-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {t().decision.open}
                 </button>
               )}
               {!review && !result?.clarification_question && suggestedCode && isValidHsCode(suggestedCode) && (

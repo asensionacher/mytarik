@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import ts from "typescript";
 import React from "react";
@@ -13,6 +15,10 @@ function moduleURL(source) {
 }
 
 function componentModuleURL(source) {
+  return `data:text/javascript;base64,${Buffer.from(componentModuleSource(source)).toString("base64")}`;
+}
+
+function componentModuleSource(source) {
   const { outputText } = ts.transpileModule(source, {
     compilerOptions: {
       module: ts.ModuleKind.ESNext,
@@ -20,7 +26,7 @@ function componentModuleURL(source) {
       jsx: ts.JsxEmit.React,
     },
   });
-  return `data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`;
+  return outputText;
 }
 
 const stringsURL = moduleURL(await readFile(new URL("../src/i18n/strings.ts", import.meta.url), "utf8"));
@@ -54,6 +60,9 @@ const clarificationSource = (await readFile(
   .replace('from "react"', `from "${import.meta.resolve("react")}"`)
   .replace('from "../i18n/strings"', `from "${stringsURL}"`);
 const { ClarificationPanel } = await import(componentModuleURL(clarificationSource));
+const codeDecisionModalURL = moduleURL(
+  "export function CodeDecisionModal() { return null; } export function needsCodeDecision() { return false; }",
+);
 const resultTableSource = (await readFile(
   new URL("../src/components/ResultTable.tsx", import.meta.url), "utf8",
 ))
@@ -64,7 +73,8 @@ const resultTableSource = (await readFile(
   .replace('from "react"', `from "${reactURL}"`)
   .replace('from "../i18n/strings"', `from "${stringsURL}"`)
   .replace('from "./DetailPanel"', `from "${detailPanelURL}"`)
-  .replace('from "./ClarificationPanel"', `from "${clarificationPanelURL}"`);
+  .replace('from "./ClarificationPanel"', `from "${clarificationPanelURL}"`)
+  .replace('from "./CodeDecisionModal"', `from "${codeDecisionModalURL}"`);
 const { createCodeReview, isValidHsCode } = await import(componentModuleURL(resultTableSource));
 
 // Segunda instancia de ResultTable con el React real: la de arriba usa un
@@ -80,8 +90,59 @@ const renderableResultTableSource = (await readFile(
   .replace('from "react"', `from "${realReactURL}"`)
   .replace('from "../i18n/strings"', `from "${stringsURL}"`)
   .replace('from "./DetailPanel"', `from "${detailPanelURL}"`)
-  .replace('from "./ClarificationPanel"', `from "${clarificationPanelURL}"`);
+  .replace('from "./ClarificationPanel"', `from "${clarificationPanelURL}"`)
+  .replace('from "./CodeDecisionModal"', `from "${codeDecisionModalURL}"`);
 const { ResultTable } = await import(componentModuleURL(renderableResultTableSource));
+
+// Módulo real del modal: se prueba su lógica y su renderizado.
+const codeDecisionModalSource = (await readFile(
+  new URL("../src/components/CodeDecisionModal.tsx", import.meta.url), "utf8",
+))
+  .replace(
+    'import { useEffect, useRef, useState } from "react";',
+    'import React, { useEffect, useRef, useState } from "react";',
+  )
+  .replace('from "react"', `from "${realReactURL}"`)
+  .replace('from "../i18n/strings"', `from "${stringsURL}"`);
+const { CodeDecisionModal, buildDecisionCandidates, needsCodeDecision } =
+  await import(componentModuleURL(codeDecisionModalSource));
+
+// Tercera instancia de ResultTable con el modal real, para comprobar que el
+// disparador y el modal funcionan juntos. Ambos ficheros se transpilan a disco
+// para que el import relativo resuelva como en el bundle.
+const tempDir = await mkdtemp(join(tmpdir(), "mytarik-modal-"));
+await writeFile(join(tempDir, "CodeDecisionModal.mjs"), componentModuleSource(
+  (await readFile(
+    new URL("../src/components/CodeDecisionModal.tsx", import.meta.url), "utf8",
+  ))
+    .replace(
+      'import { useEffect, useRef, useState } from "react";',
+      'import React, { useEffect, useRef, useState } from "react";',
+    )
+    .replace('from "react"', `from "${realReactURL}"`)
+    .replace('from "../i18n/strings"', `from "${stringsURL}"`),
+));
+await writeFile(join(tempDir, "DetailPanel.mjs"),
+  "export function DetailPanel() { return null; }");
+await writeFile(join(tempDir, "ClarificationPanel.mjs"),
+  "export function ClarificationPanel() { return null; }");
+await writeFile(join(tempDir, "ResultTable.mjs"), componentModuleSource(
+  (await readFile(
+    new URL("../src/components/ResultTable.tsx", import.meta.url), "utf8",
+  ))
+    .replace(
+      'import { useState } from "react";',
+      'import React, { useState } from "react";',
+    )
+    .replace('from "react"', `from "${realReactURL}"`)
+    .replace('from "../i18n/strings"', `from "${stringsURL}"`)
+    .replace('from "./DetailPanel"', `from "./DetailPanel.mjs"`)
+    .replace('from "./ClarificationPanel"', `from "./ClarificationPanel.mjs"`)
+    .replace('from "./CodeDecisionModal"', `from "./CodeDecisionModal.mjs"`),
+));
+const { ResultTable: IntegratedResultTable } = await import(
+  `file://${join(tempDir, "ResultTable.mjs")}`,
+);
 
 const trade = { trade_mode: "import", origin_country: "ES", dispatch_country: "CN" };
 const invoice = { filename: "text", source: "raw", items_count: 0, items: [], trade };
@@ -452,5 +513,106 @@ test("shows the retry button as busy while the line is being reclassified", () =
   }));
   assert.match(markup, /Reintentando…/);
   assert.doesNotMatch(markup, />Reintentar</);
+  setLang("en");
+});
+
+test("offers a decision only while the AI is unsure about the line", () => {
+  const base = {
+    primary_code: "610910",
+    primary_description: "Camisetas de algodón",
+    confidence: 0.8,
+    alternative_codes: [{ code: "610990", description: "Las demás", why_not: "Tela", trade_off: "Si es de punto" }],
+  };
+  // Confianza alta: la línea está resuelta, aunque la IA cite alternativas.
+  assert.equal(needsCodeDecision({ ...base, confidence: 0.95 }), false);
+  // Confianza alta y sin alternativas: tampoco hay nada que decidir.
+  assert.equal(needsCodeDecision({ ...base, confidence: 0.95, alternative_codes: [] }), false);
+  // Confianza baja: hay que decidir.
+  assert.equal(needsCodeDecision({ ...base, confidence: 0.5 }), true);
+  // Justo en el umbral: sigue resolta.
+  assert.equal(needsCodeDecision({ ...base, confidence: 0.9 }), false);
+  // Sin código primario ni alternativas: no se puede decidir nada.
+  assert.equal(needsCodeDecision({ ...base, primary_code: null, confidence: 0.5, alternative_codes: [] }), false);
+});
+
+test("lists the primary code and the alternatives the AI is unsure about", () => {
+  const candidates = buildDecisionCandidates({
+    primary_code: "610910",
+    primary_description: "Camisetas de algodón",
+    confidence: 0.8,
+    alternative_codes: [
+      { code: "610990", description: "Las demás", why_not: "Tela", trade_off: "Si es de punto" },
+      { code: "610910", description: "Duplicado" },
+    ],
+  });
+  assert.equal(candidates.length, 2);
+  assert.equal(candidates[0].code, "610910");
+  assert.equal(candidates[0].isPrimary, true);
+  assert.equal(candidates[0].confidence, 0.8);
+  assert.equal(candidates[1].code, "610990");
+  assert.equal(candidates[1].isPrimary, false);
+  // El backend no informa de la confianza de las alternativas: no se inventa.
+  assert.equal(candidates[1].confidence, null);
+  assert.equal(candidates[1].why_not, "Tela");
+  assert.equal(candidates[1].trade_off, "Si es de punto");
+});
+
+test("renders the decision modal with every candidate the AI proposed", () => {
+  setLang("es");
+  const result = {
+    primary_code: "610910",
+    primary_description: "Camisetas de algodón",
+    confidence: 0.62,
+    alternative_codes: [{ code: "610990", description: "Las demás", why_not: "Tela", trade_off: "Si es de punto" }],
+  };
+  const markup = renderToStaticMarkup(React.createElement(CodeDecisionModal, {
+    result, description: "500 cajas de camisetas", onSelect: () => {}, onClose: () => {},
+  }));
+  assert.match(markup, /Decide el código HS/);
+  assert.match(markup, /610910/);
+  assert.match(markup, /610990/);
+  assert.match(markup, /Camisetas de algodón/);
+  assert.match(markup, /Propuesta principal/);
+  // La confianza solo aparece donde el backend la informa.
+  assert.match(markup, /62%/);
+  assert.match(markup, /Por qué no/);
+  assert.match(markup, /Trade-off/);
+  assert.match(markup, /Confirmar código/);
+  setLang("en");
+});
+
+test("offers the code decision from the row only while the AI is unsure", () => {
+  setLang("es");
+  const unsure = {
+    line_number: 1,
+    description: "Camisetas de algodón",
+    classification: {
+      status: "ambiguous",
+      result: {
+        primary_code: "610910",
+        primary_description: "Camisetas de algodón",
+        confidence: 0.62,
+        alternative_codes: [{ code: "610990", description: "Las demás" }],
+      },
+      error: null,
+    },
+  };
+  const confident = {
+    ...unsure,
+    line_number: 2,
+    classification: {
+      status: "classified",
+      result: { ...unsure.classification.result, confidence: 0.97 },
+      error: null,
+    },
+  };
+  const markup = renderToStaticMarkup(React.createElement(IntegratedResultTable, {
+    items: [unsure, confident],
+    reviews: {},
+    onReview: () => {},
+    onAnswer: async () => {},
+  }));
+  // Solo la línea dudosa ofrece la decisión.
+  assert.equal(markup.match(/Elegir código/g).length, 1);
   setLang("en");
 });
