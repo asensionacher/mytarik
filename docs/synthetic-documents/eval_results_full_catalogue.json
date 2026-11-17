@@ -1,0 +1,78 @@
+{
+  "generated_at": "2026-11-15T09:47:22.592074+00:00",
+  "pack_id": "EU-SYN-2026-11",
+  "warning": "TARIC 10-digit suffixes are illustrative. Verify against the official TARIC database before production or real customs use.",
+  "evaluation_mode": "classify_ground_truth",
+  "documents_processed": 1,
+  "documents_requested": 1,
+  "lines_total": 4,
+  "lines_matched_to_ground_truth": 4,
+  "cn8_hits": 0,
+  "taric10_hits": 0,
+  "errors": [],
+  "documents": [
+    {
+      "file": "ground_truth.json",
+      "status": "ok",
+      "error": null,
+      "items": [
+        {
+          "description": "Men's woven cotton shirts, long sleeve, 100% cotton, 120 pcs, cartons of 20",
+          "status": "error",
+          "predicted_cn8": null,
+          "predicted_taric10": null,
+          "primary_code": null,
+          "expected_cn8": "62052000",
+          "expected_taric10": "6205200000",
+          "matched": true,
+          "cn8_hit": false,
+          "taric10_hit": false,
+          "confidence": null,
+          "error": "Error al conectar con el LLM local: <urlopen error [Errno 111] Connection refused>"
+        },
+        {
+          "description": "Cotton bed linen, printed, 100% cotton, 80 sets, cartons of 10",
+          "status": "error",
+          "predicted_cn8": null,
+          "predicted_taric10": null,
+          "primary_code": null,
+          "expected_cn8": "63022100",
+          "expected_taric10": "6302210000",
+          "matched": true,
+          "cn8_hit": false,
+          "taric10_hit": false,
+          "confidence": null,
+          "error": "Error al conectar con el LLM local: <urlopen error [Errno 111] Connection refused>"
+        },
+        {
+          "description": "Spark plugs for spark-ignition engines, model SP-208, 500 pcs",
+          "status": "error",
+          "predicted_cn8": null,
+          "predicted_taric10": null,
+          "primary_code": null,
+          "expected_cn8": "85111000",
+          "expected_taric10": "8511100000",
+          "matched": true,
+          "cn8_hit": false,
+          "taric10_hit": false,
+          "confidence": null,
+          "error": "Error al conectar con el LLM local: <urlopen error [Errno 111] Connection refused>"
+        },
+        {
+          "description": "Extra virgin olive oil, 1 L glass bottles, 60 bottles",
+          "status": "error",
+          "predicted_cn8": null,
+          "predicted_taric10": null,
+          "primary_code": null,
+          "expected_cn8": "15091010",
+          "expected_taric10": "1509101000",
+          "matched": true,
+          "cn8_hit": false,
+          "taric10_hit": false,
+          "confidence": null,
+          "error": "Error al conectar con el LLM local: <urlopen error [Errno 111] Connection refused>"
+        }
+      ]
+    }
+  ]
+}

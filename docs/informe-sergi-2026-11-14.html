@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Mytarik / TariffAI — Informe de estado</title>
+<style>
+  @page { size: A4; margin: 17mm 16mm 16mm 16mm; }
+  body { font-family: "DejaVu Sans", Arial, sans-serif; color: #1f2937; font-size: 10.5pt; line-height: 1.45; }
+  h1 { color: #0f172a; font-size: 25pt; margin: 0 0 4mm 0; letter-spacing: -0.5pt; }
+  h2 { color: #0f172a; font-size: 15pt; margin: 7mm 0 2.5mm 0; border-bottom: 1.5pt solid #0f766e; padding-bottom: 1.5mm; }
+  h3 { color: #0f766e; font-size: 11.5pt; margin: 4mm 0 1.5mm 0; }
+  p { margin: 0 0 2.5mm 0; }
+  ul { margin: 0 0 3mm 0; padding-left: 5mm; }
+  li { margin-bottom: 1.2mm; }
+  .cover { padding-top: 24mm; }
+  .kicker { color: #0f766e; font-size: 10pt; font-weight: bold; letter-spacing: 1.2pt; text-transform: uppercase; }
+  .subtitle { color: #475569; font-size: 13pt; margin: 2mm 0 8mm 0; }
+  .meta { color: #64748b; font-size: 9.5pt; border-top: 1pt solid #cbd5e1; padding-top: 3mm; margin-top: 8mm; }
+  .badge { display: inline-block; background: #ecfdf5; color: #047857; border: 1pt solid #a7f3d0; padding: 1mm 3mm; border-radius: 3mm; font-size: 9pt; font-weight: bold; }
+  .badge-warn { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+  .callout { background: transparent; border: none; padding: 0; margin: 3mm 0; }
+  .callout-warn { background: transparent; border: none; }
+  .callout-danger { background: transparent; border: none; }
+  table { width: 100%; border-collapse: collapse; page-break-inside: avoid; margin: 2.5mm 0 4mm 0; font-size: 9.5pt; }
+  th { background: #0f172a; color: #ffffff; text-align: left; padding: 2mm 2.5mm; }
+  td { border-bottom: 0.6pt solid #e2e8f0; padding: 2mm 2.5mm; vertical-align: top; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  .num { text-align: right; white-space: nowrap; }
+  .ok { color: #047857; font-weight: bold; }
+  .warn { color: #b45309; font-weight: bold; }
+  .bad { color: #b91c1c; font-weight: bold; }
+  .mono { font-family: "DejaVu Sans Mono", monospace; font-size: 8.8pt; background: #f1f5f9; padding: 0.5mm 1mm; }
+  pre { font-family: "DejaVu Sans Mono", monospace; background: #0f172a; color: #e2e8f0; padding: 3.5mm; font-size: 8.4pt; line-height: 1.35; white-space: pre-wrap; }
+  .page-break { page-break-before: always; }
+  .small { font-size: 8.7pt; color: #64748b; }
+  .arch { font-family: "DejaVu Sans Mono", monospace; font-size: 8.7pt; background: #f8fafc; border: 0.8pt solid #cbd5e1; padding: 3mm; white-space: pre; }
+  .two-col { width: 100%; }
+  .two-col td { border: none; padding: 0 2mm 0 0; background: transparent !important; width: 50%; }
+  .footer-note { margin-top: 8mm; border-top: 0.6pt solid #cbd5e1; padding-top: 2.5mm; font-size: 8.5pt; color: #64748b; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="kicker">Mytarik · TariffAI</div>
+  <h1>Informe de estado<br>y puesta en marcha</h1>
+  <div class="subtitle">Clasificación arancelaria EU con IA local: CN8 / TARIC10</div>
+  <span class="badge">Base técnica operativa</span>
+  <span class="badge badge-warn">Catálogo EU completo pendiente</span>
+
+  <div class="meta">
+    <strong>Para:</strong> Sergi<br>
+    <strong>Preparado por:</strong> Seby<br>
+    <strong>Fecha:</strong> 14 de noviembre de 2026<br>
+    <strong>Ámbito:</strong> estado del proyecto, resultados verificados, riesgos y puesta en marcha<br>
+    <strong>Clasificación:</strong> documento interno de trabajo — no asesoramiento jurídico
+  </div>
+</div>
+
+<h2>1. Resumen ejecutivo</h2>
+
+<p>Mytarik ya no es un prototipo vacío. El proyecto tiene una base técnica funcional para clasificar mercancías con códigos <strong>CN8/TARIC10</strong>, una API y una interfaz web, una base vectorial, un clasificador EU separado del flujo HS6 y una batería de pruebas. También se ha validado el flujo con documentos sintéticos y se ha construido la infraestructura para ingerir decisiones EBTI.</p>
+
+<p>La conclusión principal es clara:</p>
+
+<div class="callout">
+<strong>La arquitectura y el flujo EU funcionan; lo que falta es el dato operativo completo.</strong><br>
+El catálogo <span class="mono">eu_taric</span> contiene solo <strong>6 códigos de muestra</strong>. Sin el catálogo TARIC/CN completo y actualizado, la app no puede operar como producto real.
+</div>
+
+<h2>2. Estado por bloques</h2>
+
+<table>
+  <thead><tr><th>Bloque</th><th>Estado</th><th>Qué hay</th></tr></thead>
+  <tbody>
+  <tr><td><strong>T1 — Parser TARIC</strong></td><td class="ok">Terminado</td><td>Parser del fichero oficial de bienes, CN8/TARIC10, tests.</td></tr>
+  <tr><td><strong>T2 — Ingesta EU</strong></td><td class="ok">Terminado con muestra</td><td>Ingesta en Qdrant; <span class="mono">eu_taric</span> tiene 6 puntos.</td></tr>
+  <tr><td><strong>T3 — Clasificador EU</strong></td><td class="ok">Terminado</td><td>CN8/TARIC10, EU por defecto, legacy HS6 solo explícito, sin fallback.</td></tr>
+  <tr><td><strong>T3.3 — Web/UI EU</strong></td><td class="ok">Terminado</td><td>Tabla y detalle con CN8/TARIC10; legacy conservado.</td></tr>
+  <tr><td><strong>T4 — Consulta HS6</strong></td><td class="ok">Terminado</td><td><span class="mono">/hs6/lookup</span> y <span class="mono">/api/reference/hs6</span>, separados del clasificador EU.</td></tr>
+  <tr><td><strong>T5 — Documentos sintéticos</strong></td><td class="ok">Validado</td><td>3 documentos, 10 líneas, CN8 10/10, TARIC10 3/10.</td></tr>
+  <tr><td><strong>EBTI</strong></td><td class="warn">Parcial</td><td>90.048 decisiones cargadas; ingestión completa pausada.</td></tr>
+  <tr><td><strong>Catálogo TARIC completo</strong></td><td class="bad">Pendiente</td><td>Bloqueo principal para producción.</td></tr>
+</tbody>
+</table>
+
+<h2>3. Qué funciona hoy</h2>
+
+<h3>Clasificación EU</h3>
+<ul>
+  <li>El clasificador EU devuelve <strong>CN8</strong> y <strong>TARIC10</strong>; no devuelve HS6.</li>
+  <li><span class="mono">CLASSIFICATION_MODE=eu</span> es el modo por defecto.</li>
+  <li><span class="mono">legacy_hs6</span> solo se activa de forma explícita; no hay fallback automático.</li>
+  <li>Las respuestas EU se serializan en la API web y se muestran en la UI.</li>
+</ul>
+
+<h3>Consulta HS6 separada</h3>
+<ul>
+  <li><span class="mono">/hs6/lookup</span> usa el retriever HS6 y no llama al clasificador EU.</li>
+  <li>La UI tiene una sección independiente con el aviso: <em>“Referencia internacional. No usar para la declaración aduanera UE.”</em></li>
+  <li>HS6 no contamina la tabla EU ni el payload del clasificador.</li>
+</ul>
+
+<h3>Datos y evaluación</h3>
+<ul>
+  <li><span class="mono">hs_codes</span>: 5.613 códigos HS6 de referencia.</li>
+  <li><span class="mono">ebti_decisions</span>: 90.048 decisiones EBTI cargadas.</li>
+  <li>Traducción local ES/EN con OPUS-MT + CTranslate2, sin Azure.</li>
+  <li>Evaluación sintética: 3 documentos, 10 líneas, <strong>10/10 CN8</strong>.</li>
+  <li>Parser PDF corregido: la factura comercial pasó de 19 líneas extraídas a 4.</li>
+</ul>
+
+<div class="page-break"></div>
+
+<h2>4. Arquitectura actual</h2>
+
+<pre class="arch">Navegador
+   │
+   ▼
+webapp-frontend :3000
+   │
+   ▼
+webapp-backend :8005  ──►  TariffAI API :8004  ──►  Qdrant :6333
+                                  │
+                                  ▼
+                        Laguna S 2.1 Q4 :8084
+                        (OpenAI-compatible, 64K)
+                                  ▲
+                                  │
+                        proxy Docker :8082</pre>
+
+<table>
+  <tr><th>Servicio</th><th>Función</th></tr>
+  <tr><td><span class="mono">webapp-frontend</span></td><td>Interfaz Vite/Nginx; tabla EU, detalle, consulta HS6 separada.</td></tr>
+  <tr><td><span class="mono">webapp-backend</span></td><td>Subida de facturas, parseo, validación, proxy hacia TariffAI.</td></tr>
+  <tr><td><span class="mono">tariffai-api</span></td><td>Clasificación EU, consulta HS6, evaluación de medidas.</td></tr>
+  <tr><td><span class="mono">qdrant</span></td><td>Colecciones <span class="mono">eu_taric</span>, <span class="mono">hs_codes</span> y <span class="mono">ebti_decisions</span>.</td></tr>
+  <tr><td><span class="mono">Laguna</span></td><td>Modelo local 118B MoE Q4; 64K de contexto; razonamiento desactivado.</td></tr>
+</table>
+
+<h2>5. Decisiones de diseño</h2>
+
+<ul>
+  <li><strong>EU-first:</strong> la operativa diaria usa CN8/TARIC10. HS6 solo se consulta de forma explícita y separada.</li>
+  <li><strong>Sin fallback silencioso:</strong> si el modo EU falla, no se cae a HS6.</li>
+  <li><strong>Sin Azure:</strong> clasificación y traducción funcionan en local; no se necesitan credenciales de Azure.</li>
+  <li><strong>EBTI no es TARIC:</strong> las decisiones EBTI son jurisprudencia de apoyo, no el catálogo operativo.</li>
+  <li><strong>Revisión humana:</strong> la IA propone; el agente aduanero valida. No es asesoramiento jurídico.</li>
+</ul>
+
+<h2 style="page-break-before: always;">6. Resultados verificados</h2>
+
+<table>
+  <tr><th>Métrica</th><th class="num">Resultado</th></tr>
+  <tr><td>Tests EU / EBTI</td><td class="num ok">43 passed</td></tr>
+  <tr><td>Tests T4 HS6</td><td class="num ok">7 passed</td></tr>
+  <tr><td>Build frontend</td><td class="num ok">OK</td></tr>
+  <tr><td>Documentos sintéticos procesados</td><td class="num">3</td></tr>
+  <tr><td>Líneas evaluadas</td><td class="num">10</td></tr>
+  <tr><td>Aciertos CN8</td><td class="num ok">10 / 10</td></tr>
+  <tr><td>Aciertos TARIC10</td><td class="num warn">3 / 10</td></tr>
+  <tr><td>Errores de integración</td><td class="num ok">0</td></tr>
+</table>
+
+<p class="small">Los 7 fallos de TARIC10 no son errores del modelo: los CN8 afectados (63022100, 85111000, 15091010) no están entre los 6 códigos de muestra de <span class="mono">eu_taric</span>. No se inventaron códigos ni se sustituyeron por HS6.</p>
+
+<div class="page-break"></div>
+
+<h2>7. Riesgos y limitaciones</h2>
+
+<div class="callout-warn callout">
+<strong>1. Catálogo EU incompleto — riesgo crítico.</strong><br>
+Solo hay 6 códigos de muestra. Sin el TARIC/CN completo no se puede validar la clasificación real ni las medidas.
+</div>
+
+<div class="callout-warn callout">
+<strong>2. Medidas aduaneras y CustomsPanel.</strong><br>
+El panel de medidas sigue trabajando con lógica HS6. Hay que adaptarlo a TARIC10, origen, régimen y medidas.
+</div>
+
+<div class="callout-warn callout">
+<strong>3. EBTI incompleto.</strong><br>
+Hay 90.048 decisiones cargadas de 123.429 válidas. La ingestión se pausó; hay snapshot y se puede reanudar.
+</div>
+
+<div class="callout-warn callout">
+<strong>4. Agentes locales lentos.</strong><br>
+Hermes y OpenCode con Laguna funcionan, pero exploran y compactan demasiado. Laguna rinde ~13,8 tok/s (3 GPUs, 260 W). Son útiles para tareas pequeñas y revisión, no como ingenieros autónomos.
+</div>
+
+<div class="callout-warn callout">
+<strong>5. Sin commit y sin auditoría de producción.</strong><br>
+El trabajo está en el árbol local, sin commit. Faltan historial de aprobaciones, trazabilidad y aviso legal para cliente.
+</div>
+
+<h2>8. Lo que falta para ponerlo en marcha</h2>
+
+<h3>Bloque A — Datos EU (imprescindible)</h3>
+<ol>
+  <li>Descargar el catálogo TARIC/CN completo y actualizado.</li>
+  <li>Ingerirlo en <span class="mono">eu_taric</span> con vigencias, jerarquía y medidas.</li>
+  <li>Programar la actualización diaria/semanal y versionar el catálogo.</li>
+  <li>Repetir T5 con códigos reales y medir TARIC10 de nuevo.</li>
+</ol>
+
+<h3>Bloque B — Medidas y aduana</h3>
+<ol>
+  <li>Adaptar <span class="mono">CustomsPanel</span> a CN8/TARIC10.</li>
+  <li>Añadir origen, régimen, antidumping, cuotas y códigos Y.</li>
+  <li>Validar con un despacho aduanero real.</li>
+</ol>
+
+<h3>Bloque C — Producto</h3>
+<ol>
+  <li>Auditoría: quién aprobó cada código, cuándo y por qué.</li>
+  <li>Informe exportable y aviso legal.</li>
+  <li>Piloto con 50–100 facturas reales.</li>
+</ol>
+
+<h3>Bloque D — Puesta en marcha técnica</h3>
+<pre>cd /home/seby/mytarik
+
+# 1. Servicios
+docker compose up -d --build
+
+# 2. Modelo local + proxy Docker
+nohup /home/seby/llama.cpp/start-laguna.sh &gt; /tmp/laguna-server.log 2&gt;&amp;1 &amp;
+nohup /home/seby/.local/bin/mytarik_llm_proxy.py &gt; /tmp/mytarik-llm-proxy.log 2&gt;&amp;1 &amp;
+
+# 3. Comprobaciones
+curl -s http://127.0.0.1:8084/v1/models
+curl -s http://127.0.0.1:8005/api/health
+curl -s http://127.0.0.1:8004/health
+
+# 4. Tests
+/home/seby/.venvs/mytarik-eu/bin/python -m pytest -q \
+  tariffai/tests/test_eu_classifier.py \
+  tariffai/tests/test_eu_retriever.py \
+  tariffai/tests/test_hs6_lookup.py
+
+# 5. Evaluación sintética
+/home/seby/.venvs/mytarik-eu/bin/python \
+  tariffai/scripts/eval_synthetic_documents.py --mode upload --include 01 --limit 1</pre>
+
+<h2>9. Decisión que necesitamos de Sergi</h2>
+
+<table>
+  <tr><th>Decisión</th><th>Para qué</th></tr>
+  <tr><td>Confirmar la fuente oficial del catálogo TARIC/CN</td><td>Cerrar el bloqueo de datos y la actualización.</td></tr>
+  <tr><td>Definir el alcance del piloto</td><td>50–100 facturas, un despacho, métricas de acierto y tiempo.</td></tr>
+  <tr><td>Confirmar el marco legal</td><td>Aviso, responsabilidad, confidencialidad y revisión humana.</td></tr>
+  <tr><td>Validar el hardware/servicio</td><td>Laguna y el stack local; o una alternativa cloud si se exige latencia.</td></tr>
+</table>
+
+<div class="callout callout-danger">
+<strong>Conclusión honesta:</strong> Mytarik está técnicamente preparado para EU, pero todavía no es un producto operativo. La diferencia entre “demo” y “producción” es el catálogo completo, las medidas aduaneras, la auditoría y un piloto real.
+</div>
+
+<div class="footer-note">
+Documento generado el 14/11/2026. Los códigos TARIC de los documentos sintéticos son ilustrativos; deben verificarse contra el TARIC oficial. Este informe no constituye asesoramiento jurídico ni una decisión vinculante.
+</div>
+
+</body>
+</html>

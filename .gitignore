@@ -30,3 +30,12 @@ qdrant_data/
 # Ingest caches (auto-downloaded by tariffai/scripts/ingest_hs_codes.py)
 tariffai/data/harmonized-system.csv
 tariffai/data/hs_processed.json
+
+# Local translation models (downloaded by tariffai/scripts/download_translation_models.py)
+tariffai/models/
+docs/**/*.pdf
+docs/**/*.docx
+docs/**/*.zip
+data/
+venv_taric/
+.fixed-crawler/

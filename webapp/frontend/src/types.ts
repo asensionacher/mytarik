@@ -10,6 +10,8 @@ export interface ClassificationReasoning {
 
 export interface AlternativeCode {
   code: string;
+  cn8?: string | null;
+  taric10?: string | null;
   description: string;
   why_not?: string | null;
   trade_off?: string | null;
@@ -31,8 +33,13 @@ export interface Hierarchy {
 export interface ClassificationResult {
   input_text: string;
   cleaned_text: string;
+  classification_mode?: "eu" | "legacy_hs6";
   primary_code: string | null;
   primary_description: string | null;
+  cn8?: string | null;
+  taric10?: string | null;
+  description?: string | null;
+  alternatives?: AlternativeCode[];
   confidence: number;
   reasoning: ClassificationReasoning;
   hierarchy: Hierarchy;
@@ -327,4 +334,17 @@ export interface ResolveTaricCodesResponse {
 export interface CodeReview {
   code: string;
   changed: boolean;
+}
+
+// ── Consulta internacional HS6 (referencia, no EU) ─────────────────────
+export interface HS6Candidate {
+  hs6: string;
+  description: string;
+  score: number;
+}
+
+export interface HS6LookupResponse {
+  query: string;
+  candidates: HS6Candidate[];
+  notice: string;
 }

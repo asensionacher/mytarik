@@ -4,6 +4,7 @@ import { InvoiceUpload } from "./components/InvoiceUpload";
 import { TextInput } from "./components/TextInput";
 import { ResultTable } from "./components/ResultTable";
 import { CustomsPanel } from "./components/CustomsPanel";
+import { HS6Lookup } from "./components/HS6Lookup";
 import {
   SUPPORTED_LANGS,
   getLang,
@@ -425,6 +426,9 @@ export default function App() {
             )}
           </section>
         )}
+
+        {/* HS6 international reference lookup — fully independent of EU classification */}
+        <HS6Lookup />
       </main>
 
       <footer className="mx-auto max-w-5xl px-4 pb-10 pt-4 text-center text-xs text-slate-400">

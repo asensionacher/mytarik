@@ -1,9 +1,10 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 from typing import Literal
 
 
 ResponseLanguage = Literal["es", "en"]
 TradeMode = Literal["import", "export"]
+ClassificationMode = Literal["eu", "legacy_hs6"]
 
 
 class TradeContext(BaseModel):
@@ -68,6 +69,10 @@ class ClassificationResult(BaseModel):
     """Final classification output for a single cargo description."""
     input_text: str = Field(..., description="Original raw cargo description")
     cleaned_text: str = Field(..., description="Preprocessed cargo text")
+    classification_mode: ClassificationMode = Field(
+        default="legacy_hs6",
+        description="Classification pipeline that produced this result",
+    )
     primary_code: str | None = Field(
         default=None, pattern=r"^\d{6}$", description="Recommended 6-digit HS code",
     )
@@ -95,6 +100,53 @@ class ClassificationResult(BaseModel):
     total_tokens: int = Field(default=0, ge=0, description="Total de tokens consumidos (prompt + output)")
     # None when the deployment does not expose internal reasoning.
     thinking: str | None = Field(default=None, description="Razonamiento interno del modelo (modo thinking)")
+
+
+class EUAlternativeCode(BaseModel):
+    """EU CN8/TARIC10 alternative candidate."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    cn8: str | None = Field(default=None, pattern=r"^\d{8}$")
+    taric10: str | None = Field(default=None, pattern=r"^\d{10}$")
+    description: str = Field(default="")
+    why_not: str | None = Field(default=None)
+    trade_off: str | None = Field(default=None)
+
+    @computed_field
+    @property
+    def code(self) -> str:
+        return self.taric10 or self.cn8 or ""
+
+
+class EUClassificationResult(ClassificationResult):
+    """EU-first classification output with explicit CN8 and TARIC10 codes."""
+    classification_mode: Literal["eu"] = Field(...)
+    primary_code: str | None = Field(
+        default=None,
+        pattern=r"^(?:\d{8}|\d{10})$",
+        description="Recommended CN8 or TARIC10 code. Never an HS6 code.",
+    )
+    cn8: str | None = Field(...)
+    taric10: str | None = Field(...)
+    description: str = Field(...)
+    alternatives: list[EUAlternativeCode] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def sync_eu_code_fields(self):
+        if self.cn8 and self.taric10 and not self.taric10.startswith(self.cn8):
+            raise ValueError("taric10 must be a 10-digit extension of cn8")
+
+        allowed_primary = {None, self.cn8, self.taric10}
+        if self.primary_code not in allowed_primary:
+            raise ValueError("primary_code must be None, cn8, or taric10")
+
+        if not self.primary_description and self.description:
+            self.primary_description = self.description
+
+        if not self.alternative_codes and self.alternatives:
+            self.alternative_codes = [alt.model_dump() for alt in self.alternatives]
+
+        return self
 
 
 class ClassifyRequest(BaseModel):
@@ -128,5 +180,32 @@ class BatchClassifyRequest(BaseModel):
 class ClassifyResponse(BaseModel):
     """API response for a classification request."""
     status: Literal["classified", "ambiguous", "error"]
-    result: ClassificationResult | None = None
+    result: EUClassificationResult | ClassificationResult | None = None
     error: str | None = None
+
+
+# ── HS6 international reference lookup (Stage 2 retriever, no LLM) ──────────
+
+class HS6LookupRequest(BaseModel):
+    """Request to retrieve international HS6 candidate codes."""
+    model_config = ConfigDict(extra="forbid")
+    query: str = Field(..., min_length=1, description="Cargo description to look up")
+    top_k: int = Field(default=5, ge=1, le=50, description="Number of candidates to return")
+
+
+class HS6Candidate(BaseModel):
+    """A single HS6 candidate returned by the reference lookup."""
+    hs6: str = Field(..., pattern=r"^\d{6}$", description="6-digit international HS code")
+    description: str = Field(..., description="Official HS description text")
+    score: float = Field(..., ge=0.0, le=1.0, description="Retrieval score (0-1)")
+
+
+class HS6LookupResponse(BaseModel):
+    """Response from the HS6 reference lookup endpoint."""
+    model_config = ConfigDict(extra="forbid")
+    query: str = Field(..., description="Normalized query text")
+    candidates: list[HS6Candidate] = Field(default_factory=list)
+    notice: str = Field(
+        default="Referencia internacional HS6. No válido para declaración UE.",
+        description="Disclaimer that this is an international reference, not valid for EU customs declaration",
+    )

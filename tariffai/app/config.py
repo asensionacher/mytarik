@@ -16,6 +16,11 @@ EMBEDDING_DIM = 384  # dimension for multilingual-e5-small
 # --- LLM provider selection ---
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "azure").strip().lower()
 
+# --- Translation provider selection ---
+# azure = managed identity (default); local = local LLM; local_mt = OPUS-MT/CTranslate2.
+TRANSLATION_PROVIDER = os.getenv("TRANSLATION_PROVIDER", "azure").strip().lower()
+LOCAL_TRANSLATION_DIR = os.getenv("LOCAL_TRANSLATION_DIR", "models/translation").strip()
+
 # --- Azure (system-assigned managed identity; no API keys) ---
 AZURE_AI_PROJECT_ENDPOINT = os.getenv("AZURE_AI_PROJECT_ENDPOINT", "").strip()
 AZURE_AI_MODEL_DEPLOYMENT = os.getenv("AZURE_AI_MODEL_DEPLOYMENT", "MAI-Thinking-1").strip()
@@ -26,6 +31,7 @@ LOCAL_LLM_BASE_URL = os.getenv("LOCAL_LLM_BASE_URL", "").strip().rstrip("/")
 LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "").strip()
 LOCAL_LLM_API_KEY = os.getenv("LOCAL_LLM_API_KEY", "").strip()
 LOCAL_LLM_TIMEOUT = float(os.getenv("LOCAL_LLM_TIMEOUT", "120"))
+LOCAL_LLM_ENABLE_THINKING = os.getenv("LOCAL_LLM_ENABLE_THINKING", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 # --- Retrieval ---
 TOP_K_CANDIDATES = int(os.getenv("TOP_K_CANDIDATES", "10"))
@@ -33,6 +39,20 @@ SEMANTIC_WEIGHT = 0.6
 BM25_WEIGHT = 0.4
 
 # --- Classification ---
+# eu = CN8/TARIC10 (default); legacy_hs6 = 6-digit HS6 via the old pipeline.
+VALID_CLASSIFICATION_MODES = ("eu", "legacy_hs6")
+
+
+def normalize_classification_mode(value: str | None = None) -> str:
+    raw = value if value is not None else os.getenv("CLASSIFICATION_MODE", "eu")
+    mode = str(raw).strip().lower()
+    if mode not in VALID_CLASSIFICATION_MODES:
+        expected = ", ".join(VALID_CLASSIFICATION_MODES)
+        raise ValueError(f"Invalid CLASSIFICATION_MODE {raw!r}. Expected one of: {expected}.")
+    return mode
+
+
+CLASSIFICATION_MODE = normalize_classification_mode()
 CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.7"))
 
 # --- Customs measures (real-time TARIC) ---

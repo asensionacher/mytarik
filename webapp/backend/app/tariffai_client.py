@@ -54,6 +54,8 @@ def _build_models():
 
     class AlternativeCode(BaseModel):
         code: str = ""
+        cn8: str | None = None
+        taric10: str | None = None
         description: str = ""
         why_not: str | None = None
         trade_off: str | None = None
@@ -65,8 +67,13 @@ def _build_models():
     class ClassificationResult(BaseModel):
         input_text: str
         cleaned_text: str = ""
+        classification_mode: str = "legacy_hs6"
         primary_code: str | None = None
         primary_description: str | None = None
+        cn8: str | None = None
+        taric10: str | None = None
+        description: str | None = None
+        alternatives: list[AlternativeCode] = Field(default_factory=list)
         confidence: float = 0.0
         reasoning: ClassificationReasoning = ClassificationReasoning()
         hierarchy: dict = Field(default_factory=dict)
@@ -87,10 +94,20 @@ def _build_models():
         result: ClassificationResult | None = None
         error: str | None = None
 
-    return ClassifyResponse, ClassificationResult, AlternativeCode
+    class HS6Candidate(BaseModel):
+        hs6: str = Field(..., pattern=r"^\d{6}$")
+        description: str
+        score: float = Field(..., ge=0.0, le=1.0)
+
+    class HS6LookupResponse(BaseModel):
+        query: str
+        candidates: list[HS6Candidate] = Field(default_factory=list)
+        notice: str = "Referencia internacional HS6. No válido para declaración UE."
+
+    return ClassifyResponse, ClassificationResult, AlternativeCode, HS6LookupResponse
 
 
-ClassifyResponse, ClassificationResult, AlternativeCode = _build_models()  # type: ignore[assignment]
+ClassifyResponse, ClassificationResult, AlternativeCode, HS6LookupResponse = _build_models()  # type: ignore[assignment]
 
 
 # ── Cliente ─────────────────────────────────────────────────────────────
@@ -146,6 +163,14 @@ class TariffAIClient:
             resp = await self.client.post("/classify", json=payload)
             resp.raise_for_status()
             return ClassifyResponse.model_validate(resp.json())
+
+    async def hs6_lookup(self, query: str, top_k: int = 5) -> HS6LookupResponse:
+        """Consulta internacional HS6 (solo referencia). No toca el clasificador EU."""
+        payload: dict[str, Any] = {"query": query, "top_k": top_k}
+        async with asyncio.timeout(self.timeout):
+            resp = await self.client.post("/hs6/lookup", json=payload)
+            resp.raise_for_status()
+            return HS6LookupResponse.model_validate(resp.json())
 
     async def classify_batch(
         self,

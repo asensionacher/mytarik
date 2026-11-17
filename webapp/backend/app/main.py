@@ -31,7 +31,13 @@ from app.customs_client import (
     make_customs_client,
 )
 from app.invoice_parser import ParsedInvoice, parse_invoice, parse_text
-from app.tariffai_client import ClarificationAnswer, ResponseLanguage, TariffAIClient, make_client
+from app.tariffai_client import (
+    ClarificationAnswer,
+    HS6LookupResponse,
+    ResponseLanguage,
+    TariffAIClient,
+    make_client,
+)
 
 logging.basicConfig(
     level=settings.log_level.upper(),
@@ -397,4 +403,31 @@ async def evaluate_customs_operation(
 
     if response.status == "error":
         raise HTTPException(502, response.error or "El motor de medidas falló")
+    return response
+
+
+# ── HS6 international reference lookup ─────────────────────────────────────
+class HS6ReferenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    query: str = Field(..., min_length=1, max_length=1000)
+    top_k: int = Field(default=5, ge=1, le=50)
+
+
+@app.post("/api/reference/hs6", response_model=HS6LookupResponse)
+async def hs6_reference(body: HS6ReferenceRequest) -> HS6LookupResponse:
+    """
+    Consulta internacional HS6 (solo referencia).
+
+    No valida para declaración aduanera UE: es una referencia internacional
+    de seis dígitos. No invoca el clasificador EU ni devuelve CN8/TARIC10.
+    """
+    try:
+        async with make_client() as client:
+            response = await client.hs6_lookup(body.query, top_k=body.top_k)
+    except httpx.TimeoutException as exc:
+        logger.exception("Tiempo de espera agotado en la consulta HS6")
+        raise HTTPException(504, "TariffAI superó el tiempo de espera") from exc
+    except Exception as exc:
+        logger.exception("Fallo llamando a TariffAI para la consulta HS6")
+        raise HTTPException(502, f"TariffAI no respondió: {exc}") from exc
     return response

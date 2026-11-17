@@ -71,6 +71,9 @@ services:
       UK_TARIFF_API_KEY: "${UK_TARIFF_API_KEY:-}"
     env_file:
       - .env
+    extra_hosts:
+      # El LLM local (llama-server/Strata) corre en el host, no en el contenedor.
+      - "host.docker.internal:host-gateway"
     ports:
       - "8004:8004"
     healthcheck:
@@ -113,7 +116,7 @@ services:
     ports:
       - "3000:80"
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost/healthz"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
       interval: 15s
       timeout: 3s
       retries: 3

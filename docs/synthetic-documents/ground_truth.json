@@ -1,0 +1,78 @@
+{
+  "pack_id": "EU-SYN-2026-11",
+  "description": "Synthetic EU trade documents for Mytarik testing. All identifiers are fictitious.",
+  "currency": "EUR",
+  "invoice": {
+    "number": "EXP-2026-1042",
+    "date": "28 October 2026",
+    "incoterm": "CIF Valencia (Incoterms 2020)",
+    "goods_total": 7450.0,
+    "freight": 650.0,
+    "insurance": 120.0,
+    "cif_total": 8220.0,
+    "net_weight_kg": 242.0,
+    "gross_weight_kg": 289.8
+  },
+  "lines": [
+    {
+      "line": "1",
+      "description": "Men's woven cotton shirts, long sleeve, 100% cotton, 120 pcs, cartons of 20",
+      "cn8": "62052000",
+      "taric10": "6205200000",
+      "hs6": "620520",
+      "origin": "CN",
+      "quantity": 120,
+      "unit_price": 18.5,
+      "amount": 2220.0
+    },
+    {
+      "line": "2",
+      "description": "Cotton bed linen, printed, 100% cotton, 80 sets, cartons of 10",
+      "cn8": "63022100",
+      "taric10": "6302210000",
+      "hs6": "630221",
+      "origin": "CN",
+      "quantity": 80,
+      "unit_price": 32.0,
+      "amount": 2560.0
+    },
+    {
+      "line": "3",
+      "description": "Spark plugs for spark-ignition engines, model SP-208, 500 pcs",
+      "cn8": "85111000",
+      "taric10": "8511100000",
+      "hs6": "851110",
+      "origin": "CN",
+      "quantity": 500,
+      "unit_price": 4.2,
+      "amount": 2100.0
+    },
+    {
+      "line": "4",
+      "description": "Extra virgin olive oil, 1 L glass bottles, 60 bottles",
+      "cn8": "15091010",
+      "taric10": "1509101000",
+      "hs6": "150910",
+      "origin": "ES",
+      "quantity": 60,
+      "unit_price": 9.5,
+      "amount": 570.0
+    }
+  ],
+  "intra_eu_invoice": {
+    "number": "RT-2026-0457",
+    "date": "2026-11-03",
+    "total": 4890.0,
+    "vat_treatment": "reverse charge"
+  },
+  "documents": {
+    "commercial_invoice": "01_commercial_invoice_CN_ES.pdf",
+    "packing_list": "02_packing_list_CN_ES.pdf",
+    "bill_of_lading": "03_bill_of_lading_CN_ES.pdf",
+    "eu_import_declaration": "04_eu_import_declaration_SAD.pdf",
+    "certificate_of_origin": "05_certificate_of_origin_CN.pdf",
+    "intra_eu_invoice": "06_intra_eu_invoice_DE_ES.pdf",
+    "cmr": "07_cmr_DE_ES.pdf"
+  },
+  "warning": "TARIC 10-digit suffixes are illustrative. Verify against the official TARIC database before production or real customs use."
+}

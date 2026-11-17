@@ -14,8 +14,14 @@ interface Props {
   disabled?: boolean;
 }
 
+export type ClassificationMode = "eu" | "legacy_hs6";
+
+export function isValidCode(code: string, mode: ClassificationMode = "legacy_hs6"): boolean {
+  return mode === "eu" ? /^\d{8}$|^\d{10}$/.test(code) : /^\d{6}$/.test(code);
+}
+
 export function isValidHsCode(code: string): boolean {
-  return /^\d{6}$/.test(code);
+  return isValidCode(code, "legacy_hs6");
 }
 
 export function createCodeReview(code: string, suggestedCode: string | null): CodeReview {
@@ -40,8 +46,8 @@ export function ResultTable({
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const s = t().results;
 
-  function acceptCode(index: number, code: string) {
-    if (!isValidHsCode(code)) return;
+  function acceptCode(index: number, code: string, mode: ClassificationMode) {
+    if (!isValidCode(code, mode)) return;
     onReview(index, createCodeReview(code, code));
   }
 
@@ -71,7 +77,9 @@ export function ResultTable({
           <tr>
             <th className="w-10 px-3 py-2 text-right">{s.columns.n}</th>
             <th className="px-3 py-2 text-left">{s.columns.desc}</th>
-            <th className="w-52 px-3 py-2 text-left">{s.columns.code}</th>
+            <th className="w-56 px-3 py-2 text-left">
+              {s.columns.euCode}
+            </th>
             <th className="px-3 py-2 text-left">{s.columns.hsDesc}</th>
             <th className="w-24 px-3 py-2 text-right">{s.columns.conf}</th>
             <th className="w-32 px-3 py-2 text-left">{s.columns.status}</th>
@@ -84,7 +92,8 @@ export function ResultTable({
             const r = it.classification;
             const result = r.result;
             const status = r.status;
-            const suggestedCode = result?.primary_code ?? null;
+            const mode: ClassificationMode = result?.classification_mode === "eu" ? "eu" : "legacy_hs6";
+            const suggestedCode = result?.taric10 ?? result?.cn8 ?? result?.primary_code ?? null;
             const code = reviews[lineIndex]?.code ?? suggestedCode ?? "—";
             const hsDesc = result?.primary_description ?? "";
             const conf = result?.confidence ?? 0;
@@ -105,7 +114,8 @@ export function ResultTable({
                 conf={conf}
                 statusColors={statusBadge(status)}
                 confidenceColors={confidenceColor(conf)}
-                onAccept={() => acceptCode(lineIndex, suggestedCode ?? "")}
+                mode={mode}
+                onAccept={() => acceptCode(lineIndex, suggestedCode ?? "", mode)}
                 onSave={(newCode) => saveCode(lineIndex, newCode, suggestedCode)}
                 onReset={() => resetCode(lineIndex)}
                 onToggle={() => setOpenIdx(open ? null : lineIndex)}
@@ -136,6 +146,7 @@ interface RowProps {
   conf: number;
   statusColors: string;
   confidenceColors: string;
+  mode: ClassificationMode;
   onAccept: () => void;
   onSave: (code: string) => void;
   onReset: () => void;
@@ -147,7 +158,7 @@ interface RowProps {
 function FragmentRow(props: RowProps) {
   const {
     idx, it, result, open, status, code, suggestedCode, review, hsDesc, conf,
-    statusColors, confidenceColors, onAccept, onSave, onReset, onToggle, onAnswer, disabled,
+    statusColors, confidenceColors, mode, onAccept, onSave, onReset, onToggle, onAnswer, disabled,
   } = props;
   const s = t().results;
   const [editing, setEditing] = useState(false);
@@ -161,8 +172,8 @@ function FragmentRow(props: RowProps) {
   }
 
   function saveCode() {
-    if (!isValidHsCode(draftCode)) {
-      setCodeError(s.invalidHsCode);
+    if (!isValidCode(draftCode, mode)) {
+      setCodeError(mode === "eu" ? s.invalidEuCode : s.invalidHsCode);
       return;
     }
     onSave(draftCode);
@@ -179,6 +190,11 @@ function FragmentRow(props: RowProps) {
             <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-700">
               {code}
             </span>
+            {mode === "eu" ? (
+              <span className="rounded-full bg-teal-50 px-2 py-0.5 text-[10px] text-teal-700">
+                CN8 {result?.cn8 ?? "—"} · TARIC10 {result?.taric10 ?? "—"}
+              </span>
+            ) : null}
             {review && (
               <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] text-emerald-700">
                 {s.accepted}
@@ -202,11 +218,11 @@ function FragmentRow(props: RowProps) {
                 autoFocus
                 aria-label={s.change}
                 inputMode="numeric"
-                maxLength={6}
-                pattern="[0-9]{6}"
+                maxLength={mode === "eu" ? 10 : 6}
+                pattern={mode === "eu" ? "[0-9]{8,10}" : "[0-9]{6}"}
                 value={draftCode}
                 onChange={(event) => {
-                  setDraftCode(event.target.value.replace(/\D/g, "").slice(0, 6));
+                  setDraftCode(event.target.value.replace(/\D/g, "").slice(0, mode === "eu" ? 10 : 6));
                   setCodeError(null);
                 }}
                 className="w-full rounded border border-slate-300 px-2 py-1 font-mono text-xs focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-200"
@@ -233,7 +249,7 @@ function FragmentRow(props: RowProps) {
             </form>
           ) : (
             <div className="mt-2 flex flex-wrap gap-2">
-              {!review && !result?.clarification_question && suggestedCode && isValidHsCode(suggestedCode) && (
+              {!review && !result?.clarification_question && suggestedCode && isValidCode(suggestedCode, mode) && (
                 <button
                   type="button"
                   onClick={onAccept}

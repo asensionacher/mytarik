@@ -25,6 +25,7 @@ from app.config import (
     LLM_PROVIDER,
     LOCAL_LLM_API_KEY,
     LOCAL_LLM_BASE_URL,
+    LOCAL_LLM_ENABLE_THINKING,
     LOCAL_LLM_MODEL,
     LOCAL_LLM_TIMEOUT,
 )
@@ -125,6 +126,7 @@ class LocalOpenAIProvider:
                 {"role": "user", "content": user},
             ],
             "max_completion_tokens": _MAX_COMPLETION_TOKENS,
+            "chat_template_kwargs": {"enable_thinking": LOCAL_LLM_ENABLE_THINKING},
         }
         headers = {
             "Content-Type": "application/json",

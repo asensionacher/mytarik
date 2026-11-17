@@ -21,7 +21,7 @@ from typing import Iterable
 
 import pdfplumber
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageOps
 
 from app.config import settings
 
@@ -88,7 +88,7 @@ _NON_PRODUCT_RE = re.compile(
     r"^(?:"
     r"[\s\-\=\.\_\*\|]+"                # sólo separadores
     r"|page\s+\d+\s*(?:of\s+\d+)?"      # "page 1 of 3"
-    r"|\d+\s*/\s*\d+"                   # "1/2"
+    r"|\d+\s*/\s*\d+\s*$"               # "1/2"
     r")",
     re.IGNORECASE,
 )
@@ -116,6 +116,7 @@ _METADATA_TOKENS = frozenset({
     # cabeceras y metadatos de factura
     "FACTURA", "INVOICE", "INVOICES", "FECHA", "DATE", "PAGINA", "PAGE", "NOTAS",
     "NOTES", "DESCRIPCION", "DESCRIPCIONES", "DESCRIPTION", "DESCRIPTIONS",
+    "MERCANCIA", "MERCANCIAS", "MERCHANDISE", "MERCHANDISES",
     "CANTIDAD", "CANTIDADES", "QUANTITY", "QTY", "ARTICULO", "ARTICULOS", "ITEM",
     "REF", "PO", "CLIENTE", "CLIENT", "PROVEEDOR", "SUPPLIER", "EMISOR", "RECEPTOR",
     "DESTINATARIO", "TERMINOS", "TERMS", "CONDICIONES", "CONDITIONS", "PAGO",
@@ -133,6 +134,9 @@ _METADATA_TOKENS = frozenset({
     "OBSERVATIONS", "COMMENTS", "COMENTARIOS", "REFERENCIA", "REFERENCE", "SERIE",
     "SERIES", "LOTE", "LOT", "BATCH", "MARCA", "BRAND", "MODELO", "MODEL", "COLOR",
     "SIZE", "TALLA", "MEDIDA", "MEASURE", "VOLUMEN", "VOLUME", "PESO",
+    # marcas de documentos sintéticos o copias
+    "SPECIMEN", "SPECIMENS", "SYNTHETIC", "SINTETICO", "SINTETICA", "SPÉCIMEN",
+    "VALID", "VALIDO", "VALIDA", "DOCUMENT", "DOCUMENTO", "DUPLICATE", "DUPLICADO",
 })
 
 # Unidades de medida y embalajes: no mantienen viva una línea corta, pero sí
@@ -231,7 +235,11 @@ def _is_label_line(stripped: str) -> bool:
     """
     tokens = _TOKEN_RE.findall(stripped)
     if tokens and _normalize_token(tokens[0]) in _LABEL_HEAD_TOKENS:
-        return True
+        # "BANCO CON RESPALDO Y APOYA BRAZOS" es un producto (banco = asiento),
+        # no la etiqueta "BANCO". Sólo es etiqueta si lleva dos puntos o si el
+        # resto no describe nada ("IBAN ES91 ...").
+        if ":" in stripped or not _has_content_token(tokens[1:]):
+            return True
     head, sep, value = stripped.partition(":")
     if not sep:
         return False
@@ -268,6 +276,9 @@ def _is_product_line(line: str) -> bool:
     """
     stripped = line.strip()
     if not stripped:
+        return False
+    # Avisos de copia/muestra ("SPECIMEN · SYNTHETIC DOCUMENT ...").
+    if "SPECIMEN" in stripped.upper():
         return False
     if _NON_PRODUCT_RE.match(stripped):
         return False
@@ -313,6 +324,38 @@ def _extract_text_from_pdf(content: bytes) -> tuple[str, int]:
         for page in pdf.pages:
             text_parts.append(page.extract_text() or "")
     return "\n".join(text_parts), page_count
+
+
+# psm 6 (bloque uniforme) mantiene una fila de tabla por línea; con la
+# segmentación automática Tesseract descarta las columnas numéricas estrechas.
+_TESSERACT_CONFIG = "--psm 6"
+
+
+def _pdf_needs_ocr(text: str, pages: int) -> bool:
+    """Un PDF sin texto embebido (factura escaneada) hay que rasterizarlo."""
+    letters = sum(ch.isalpha() for ch in text)
+    return pages > 0 and letters < 40 * pages
+
+
+def _ocr_pdf(content: bytes) -> str:
+    parts: list[str] = []
+    with pdfplumber.open(io.BytesIO(content)) as pdf:
+        for page in pdf.pages:
+            image = page.to_image(resolution=300).original.convert("L")
+            text = pytesseract.image_to_string(
+                image, lang=settings.tesseract_langs, config=_TESSERACT_CONFIG
+            )
+            if sum(ch.isalnum() for ch in text) < 60:
+                # Cabeceras con fondo oscuro y texto claro: Tesseract necesita
+                # la imagen invertida para leerlas.
+                inverted = ImageOps.invert(image)
+                alternative = pytesseract.image_to_string(
+                    inverted, lang=settings.tesseract_langs, config=_TESSERACT_CONFIG
+                )
+                if sum(ch.isalnum() for ch in alternative) > sum(ch.isalnum() for ch in text):
+                    text = alternative
+            parts.append(text)
+    return "\n".join(parts)
 
 
 def _extract_descriptions_from_tables(content: bytes) -> list[str]:
@@ -363,6 +406,206 @@ def _extract_descriptions_from_tables(content: bytes) -> list[str]:
     return descriptions
 
 
+_LINE_ITEM_START_RE = re.compile(r"^\s*(\d+(?:-\d+)?)[\s|)]+(.+)$")
+_CODE_COLUMN_RE = re.compile(r"\s+\d{4}(?:\s?\d{2}){2}(?:\s|$)")
+_TRAILING_AMOUNT_RE = re.compile(r"\b\d{1,3}(?:[.,]\d{3})*[.,]\d{2}\s*$")
+_CN_CODE_LIKE_RE = re.compile(
+    r"\b\d{8}\b|\b\d{4}\s\d{2}\s\d{2}\b|\b\d{4}\s\d{4}\b|\b\d{4}\.\d{2}\.\d{2}\b"
+)
+
+# Pie de página ("page 1 / 2", "Página 1 de 2") y avisos de copia. Van dentro
+# del flujo de texto entre las filas de una tabla partida en varias páginas; si
+# se dejan pasar se pegan a la última descripción y la fila se descarta después.
+_PAGE_FOOTER_RE = re.compile(
+    r"^(?:page|p[áa]gina)\s+\d+\s*(?:/|\bde\b|\bof\b)\s*\d+$", re.IGNORECASE)
+_COPY_MARK_RE = re.compile(
+    r"SPECIMEN|SYNTHETIC DOCUMENT|DOCUMENTO SINT[ÉE]TICO|NO V[ÁA]LID[OA]",
+    re.IGNORECASE,
+)
+
+# Primera línea del bloque de totales: a partir de aquí ya no hay artículos.
+_ITEM_STOP_RE = re.compile(
+    r"^(?:TOTAL|SUBTOTAL|SUB-TOTAL|GOODS VALUE|BASE IMPONIBLE|TAXABLE|"
+    r"IMPORTE TOTAL|TOTAL A PAGAR|TOTAL FACTURA|FREIGHT|INSURANCE|DISCOUNT|"
+    r"DESCUENTO|PORTES|MARINE|CIF TOTAL|SAY:|SON:|VAT|IVA|NOTES|OBSERVACIONES|"
+    r"BANK|DATOS BANCARIOS|IBAN|BIC)\b",
+    re.IGNORECASE,
+)
+
+
+_HEADER_WORDS = frozenset({
+    "NO", "N", "DESCRIPTION", "DESCRIPCION", "CONTENTS", "CN", "CODE",
+    "CODIGO", "ORIGIN", "ORIGEN", "QUANTITY", "QTY", "CANTIDAD", "UNIT",
+    "UNIDAD", "UNITARIO", "PRICE", "PRECIO", "AMOUNT", "IMPORTE",
+})
+
+
+def _is_table_header_line(line: str) -> bool:
+    """¿Es la cabecera de columnas (repetida al cambiar de página)?"""
+    upper = line.upper()
+    describes = "DESCRIP" in upper or "CONTENTS" in upper
+    quantities = ("QTY" in upper or "QUANTITY" in upper or "CANTIDAD" in upper
+                  or "CN CODE" in upper or "AMOUNT" in upper or "IMPORTE" in upper)
+    if describes and quantities:
+        return True
+    words = {_normalize_token(token) for token in _TOKEN_RE.findall(line)}
+    return len(words & _HEADER_WORDS) >= 3
+
+
+def _is_item_continuation(line: str) -> bool:
+    """¿Esta línea sigue la descripción de la fila anterior (texto partido)?"""
+    if not line or _ITEM_STOP_RE.match(line):
+        return False
+    if _NON_PRODUCT_RE.match(line):
+        return False
+    if _is_table_header_line(line) or _is_header_line(line):
+        return False
+    if _is_label_line(line):
+        words = {_normalize_token(token) for token in _TOKEN_RE.findall(line)}
+        if not words & {"REF", "LOTE", "LOT", "BATCH", "MODEL", "OEM", "BEST",
+                        "CONSUMIR", "SIZE", "SIZES", "TALLAS", "COLOR"}:
+            return False
+    return bool(_TOKEN_RE.search(line))
+
+
+def _clean_line_item_text(text: str) -> str:
+    """Quita las columnas de código/importe que van detrás de la descripción."""
+    text = re.split(r"\s+(?=(?:Say|Son)\s*:)", text, maxsplit=1)[0]
+    text = _CODE_COLUMN_RE.split(text, maxsplit=1)[0]
+    return text.strip(" .;-|")
+
+
+def _has_description_word(text: str) -> bool:
+    """¿Hay al menos una palabra que describa el artículo (no unidad ni código)?"""
+    return any(
+        len(token) >= 4
+        and _normalize_token(token) not in _METADATA_TOKENS
+        and _normalize_token(token) not in _UNIT_TOKENS
+        and _normalize_token(token) not in _CONNECTOR_TOKENS
+        for token in _TOKEN_RE.findall(text)
+    )
+
+
+def _extract_pdf_line_items(full_text: str) -> list[str]:
+    """Extrae filas numeradas de una tabla de líneas de artículo.
+
+    Los PDFs sintéticos (y muchas facturas reales) tienen una cabecera con
+    "Description" y filas que empiezan por 1, 2, 3... o 1-6, 7-12...
+    Sin esto, el fallback línea a línea mete dirección, banco y pie de página
+    en el clasificador.
+    """
+    lines = [line.strip() for line in full_text.splitlines()]
+    header = None
+    for idx, line in enumerate(lines):
+        upper = line.upper()
+        if ("DESCRIP" in upper or "CONTENTS" in upper) and (
+            "QTY" in upper or "QUANTITY" in upper or "CANTIDAD" in upper
+            or "CN CODE" in upper or "AMOUNT" in upper or "IMPORTE" in upper
+        ):
+            header = idx
+            break
+        # En escaneos la cabecera puede quedar partida en dos líneas.
+        nearby = " ".join(lines[idx:idx + 6]).upper()
+        if ("DESCRIP" in upper or "CONTENTS" in upper) and any(
+            key in nearby for key in ("QTY", "QUANTITY", "CANTIDAD", "CN CODE",
+                                      "AMOUNT", "IMPORTE")
+        ):
+            header = idx
+            break
+        if upper.startswith("LINE ITEMS"):
+            header = idx
+            break
+        # Escaneos: a veces sólo sobrevive la palabra "Description".
+        words = {_normalize_token(token) for token in _TOKEN_RE.findall(line)}
+        if len(words) <= 3 and any(
+            word.startswith("DESCRIP") or word == "CONTENTS" for word in words
+        ):
+            header = idx
+            break
+    if header is None:
+        # Sin cabecera legible: empieza en la primera fila numerada con código.
+        for idx, line in enumerate(lines):
+            match = _LINE_ITEM_START_RE.match(line)
+            if match:
+                number = int(match.group(1).partition("-")[0])
+                if (number <= 5 and _CN_CODE_LIKE_RE.search(line)
+                        and _has_description_word(match.group(2))):
+                    header = idx - 1
+                    break
+            # Primera fila con la columna "No." perdida por el OCR.
+            content = line.lstrip("| ").strip()
+            if (line.startswith("|") and content
+                    and _has_description_word(content)
+                    and _CN_CODE_LIKE_RE.search(line)
+                    and _TRAILING_AMOUNT_RE.search(line)):
+                header = idx - 1
+                break
+    if header is None:
+        return []
+
+    items: list[str] = []
+    current: str | None = None
+    last_number = 0
+    for line in lines[header + 1:]:
+        if not line:
+            continue
+        if _PAGE_FOOTER_RE.match(line) or _COPY_MARK_RE.search(line):
+            if current:
+                items.append(current)
+                current = None
+            continue
+        if _is_table_header_line(line):
+            continue
+        if _ITEM_STOP_RE.match(line):
+            break
+        match = _LINE_ITEM_START_RE.match(line)
+        if match:
+            start, _, end = match.group(1).partition("-")
+            number = int(start)
+            finishes = int(end) if end else number
+            follows = number in (1, last_number + 1)
+            # "800 MPA OR MORE ...", "12 PAIRS/CTN, REF. RM9758" o
+            # "8711 TO, BRAKES ..." son texto partido, no filas nuevas: una
+            # fila de artículo trae código CN, cantidades e importes (10+ dígitos).
+            # Una descripción partida puede empezar por miles: "5 000 kW ..."
+            # llega como "5" + "000 kW ..." y parece la fila número 5.
+            wrapped_number = bool(re.match(r"^\d{3,}(?:\s|$)", match.group(2)))
+            plausible = (number <= 999 and not wrapped_number
+                         and _has_description_word(match.group(2)) and (
+                             follows or (number > last_number and _CN_CODE_LIKE_RE.search(line))
+                         ))
+            if current is None or plausible:
+                if current:
+                    items.append(current)
+                current = _clean_line_item_text(match.group(2))
+                last_number = finishes
+                continue
+        # OCR: la columna "No." puede perderse o leerse mal ("4" por "1", o
+        # desaparecer dejando la fila empezando por "|"). Una fila de artículo
+        # se reconoce por el código CN y el importe al final de la línea.
+        content = match.group(2) if match else line.lstrip("| ").strip()
+        if (content and _has_description_word(content)
+                and _CN_CODE_LIKE_RE.search(line)
+                and _TRAILING_AMOUNT_RE.search(line)):
+            if current:
+                items.append(current)
+            current = _clean_line_item_text(content)
+            last_number += 1
+            continue
+        if current and _is_item_continuation(line):
+            current = f"{current} {line}".strip()
+    if current:
+        items.append(current)
+
+    cleaned: list[str] = []
+    for item in items:
+        item = _clean_line_item_text(item)
+        tokens = [t for t in _TOKEN_RE.findall(item) if len(t) >= 3]
+        if len(tokens) >= 2 and _is_product_line(item):
+            cleaned.append(item)
+    return _dedup_preserve_order(cleaned)
+
+
 def parse_pdf(content: bytes) -> ParsedInvoice:
     """Extrae líneas de producto de un PDF.
 
@@ -370,8 +613,13 @@ def parse_pdf(content: bytes) -> ParsedInvoice:
     cae al texto plano línea por línea.
     """
     full_text, pages = _extract_text_from_pdf(content)
+    if _pdf_needs_ocr(full_text, pages):
+        full_text = _ocr_pdf(content)
 
-    descriptions = _extract_descriptions_from_tables(content)
+    # Las filas numeradas de la tabla son más fiables que el texto libre.
+    descriptions = _extract_pdf_line_items(full_text)
+    if not descriptions:
+        descriptions = _extract_descriptions_from_tables(content)
     if not descriptions:
         descriptions = _split_lines_to_descriptions(full_text)
 
@@ -424,7 +672,9 @@ def parse_image(content: bytes) -> ParsedInvoice:
         raise ValueError(f"No se pudo abrir la imagen: {exc}") from exc
 
     try:
-        text = pytesseract.image_to_string(image, lang=settings.tesseract_langs)
+        text = pytesseract.image_to_string(
+            image, lang=settings.tesseract_langs, config=_TESSERACT_CONFIG
+        )
     except pytesseract.TesseractError as exc:
         raise RuntimeError(f"Tesseract falló: {exc}") from exc
 

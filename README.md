@@ -40,9 +40,10 @@ mytarik/
 ## Requisitos
 
 - Docker Engine 24+ con `docker compose` v2
-- Un host Azure con identidad administrada del sistema habilitada y accesible desde `tariffai-api`
-- El deployment `MAI-Thinking-1` en Azure Foundry y Azure Translator habilitado
-- Permisos de la identidad: **Azure AI User** en el proyecto Foundry y **Cognitive Services User** en el recurso Translator
+- **Modo Azure:** un host Azure con identidad administrada del sistema habilitada y accesible desde `tariffai-api`
+- **Modo Azure:** el deployment `MAI-Thinking-1` en Azure Foundry y Azure Translator habilitado
+- **Modo Azure:** permisos de la identidad: **Azure AI User** en el proyecto Foundry y **Cognitive Services User** en el recurso Translator
+- **Modo local:** un servidor compatible con OpenAI (por ejemplo `llama-server`) accesible desde el contenedor; no hacen falta credenciales de Azure
 - ~6 GB de RAM disponible mientras corren los modelos de embeddings
 
 ## Puesta en marcha
@@ -53,10 +54,29 @@ mytarik/
 cp .env.example .env
 ```
 
-Solo se configuran tres variables por defecto: `AZURE_AI_PROJECT_ENDPOINT`,
+Solo se configuran tres variables por defecto para Azure: `AZURE_AI_PROJECT_ENDPOINT`,
 `AZURE_AI_MODEL_DEPLOYMENT` y `AZURE_TRANSLATOR_ENDPOINT`. Los ejemplos incluyen
 el proyecto `proj-default`, el deployment `MAI-Thinking-1` y el endpoint de
 Translator facilitados. No se necesitan claves, secretos, tenant ni client ID.
+
+Para trabajar **sin Azure**, configura el modo local:
+
+```env
+LLM_PROVIDER=local
+TRANSLATION_PROVIDER=local_mt
+LOCAL_LLM_BASE_URL=http://host.docker.internal:8080/v1
+LOCAL_LLM_MODEL=qwen3.8-flash-next-coder-iq1_m
+LOCAL_LLM_API_KEY=
+LOCAL_LLM_TIMEOUT=300
+LOCAL_TRANSLATION_DIR=models/translation
+```
+
+`TRANSLATION_PROVIDER=local_mt` usa dos modelos OPUS-MT especializados
+(español→inglés e inglés→español) convertidos a CTranslate2 int8; ocupan ~311 MB
+y corren en CPU, así que Qwen Coder sigue disponible para OpenCode. Es la opción
+recomendada para trabajar sin Azure. `TRANSLATION_PROVIDER=local` usa el LLM
+local para traducir; `TRANSLATION_PROVIDER=azure` mantiene Azure Translator con
+identidad administrada y es el valor por defecto.
 
 Para usar un proveedor local compatible con OpenAI en lugar de Azure Foundry,
 configura `LLM_PROVIDER=local`, `LOCAL_LLM_BASE_URL` y `LOCAL_LLM_MODEL`;
@@ -66,15 +86,16 @@ valor por defecto; no hay selector de proveedor ni de modelo en la API ni en la
 UI, y los errores del proveedor elegido se devuelven tal cual, sin fallback
 silencioso al otro proveedor.
 
-La autenticación usa exclusivamente `ManagedIdentityCredential`: no hay fallback
-a claves ni a `az login`. Docker local fuera de Azure no dispone de esa identidad;
-ejecuta la API en un recurso Azure con identidad administrada y acceso al endpoint
-de identidad desde el contenedor. Con el valor por defecto `LLM_PROVIDER=azure`,
-la clasificación usa Foundry (`MAI-Thinking-1`) y la traducción usa Azure
-Translator Text Translation; con `LLM_PROVIDER=local`, la clasificación usa el
-servidor local compatible con OpenAI, pero la traducción sigue necesitando Azure
-Translator. Un fallo de traducción se devuelve como error de clasificación en
-lugar de continuar con el texto original.
+La autenticación de Azure usa exclusivamente `ManagedIdentityCredential`: no hay
+fallback a claves ni a `az login`. Docker local fuera de Azure no dispone de esa
+identidad; ejecuta la API en un recurso Azure con identidad administrada y acceso
+al endpoint de identidad desde el contenedor. Con el valor por defecto
+`LLM_PROVIDER=azure`, la clasificación usa Foundry (`MAI-Thinking-1`) y la
+traducción usa Azure Translator Text Translation. Con `LLM_PROVIDER=local`,
+la clasificación usa el servidor local compatible con OpenAI. La traducción se
+elige por separado con `TRANSLATION_PROVIDER=azure|local|local_mt`; un fallo del
+proveedor seleccionado se devuelve como error de clasificación en lugar de
+continuar con el texto original o cambiar de proveedor.
 
 ### 2) Levantar todo (primera vez)
 

@@ -6,6 +6,7 @@ import type {
   CustomsOperationResponse,
   InvoiceItem,
   ItemMeasures,
+  ResolveTaricCodesResponse,
   TaricCandidate,
   TradeDetails,
 } from "../types";
@@ -87,7 +88,7 @@ export function CustomsPanel({ items, reviews, trade, onError }: Props) {
       const suggested = item.classification.result?.primary_code ?? null;
       return { index, item, hsCode: reviews[index]?.code ?? suggested ?? "" };
     })
-    .filter((line) => /^\d{6}$/.test(line.hsCode));
+    .filter((line) => /^(?:\d{6}|\d{8}|\d{10})$/.test(line.hsCode));
 
   async function handleResolve() {
     setStage("resolving");
@@ -96,6 +97,22 @@ export function CustomsPanel({ items, reviews, trade, onError }: Props) {
     try {
       const codes = [...new Set(lines.map((line) => line.hsCode))];
       const resolved = await Promise.all(codes.map(async (code) => {
+        // CN8/TARIC10 already carry the EU subdivision; do not expand it as HS6.
+        if (code.length === 8 || code.length === 10) {
+          const result: ResolveTaricCodesResponse = {
+            hs_code: code,
+            country: trade.dispatch_country,
+            candidates: [{
+              taric_code: code,
+              description: "",
+              exact: true,
+              source: "eu_classification",
+            }],
+            warnings: [],
+            source: "eu_classification",
+          };
+          return [code, result] as const;
+        }
         const result = await resolveTaricCodes(code, trade.dispatch_country);
         return [code, result] as const;
       }));
@@ -180,7 +197,9 @@ export function CustomsPanel({ items, reviews, trade, onError }: Props) {
               <div key={line.index} className="rounded-lg border border-slate-200 p-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <span className="text-sm text-slate-800">{line.item.description}</span>
-                  <span className="font-mono text-xs text-slate-500">HS {line.hsCode}</span>
+                  <span className="font-mono text-xs text-slate-500">
+                    {line.hsCode.length >= 8 ? "UE" : "HS"} {line.hsCode}
+                  </span>
                 </div>
 
                 {several ? (

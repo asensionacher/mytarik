@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Mytarik — Informe para Sergi</title>
+<style>
+@page { size: A4; margin: 17mm 15mm 15mm 15mm; }
+body { font-family: "Liberation Sans", Arial, sans-serif; font-size: 9.8pt; color: #1f2937; line-height: 1.42; margin: 0; }
+h1 { font-size: 23pt; color: #0f3d3e; margin: 0 0 4mm 0; line-height: 1.1; }
+h2 { font-size: 14pt; color: #0f766e; margin: 0 0 3mm 0; border-bottom: 1.5pt solid #99f6e4; padding-bottom: 1.5mm; }
+h3 { font-size: 11pt; color: #134e4a; margin: 5mm 0 1.5mm 0; }
+p { margin: 0 0 2.5mm 0; text-align: justify; }
+ul { margin: 1mm 0 3mm 5mm; padding: 0; }
+li { margin: 0.8mm 0; }
+table { width: 100%; border-collapse: collapse; margin: 2mm 0 4mm 0; page-break-inside: avoid; }
+th { background: #0f766e; color: #ffffff; font-size: 8.8pt; text-align: left; padding: 2.2mm 2.5mm; border: 0.6pt solid #0f766e; }
+td { font-size: 8.8pt; padding: 2mm 2.5mm; border: 0.6pt solid #cbd5e1; vertical-align: top; }
+tr:nth-child(even) td { background: #f8fafc; }
+.cover { min-height: 248mm; position: relative; }
+.cover .brand { font-size: 11pt; letter-spacing: 2pt; color: #0f766e; font-weight: bold; margin-top: 4mm; }
+.cover .rule { width: 100%; height: 2.5mm; background: #0f766e; margin: 6mm 0 16mm 0; }
+.cover .subtitle { font-size: 14pt; color: #334155; margin: 0 0 10mm 0; }
+.cover .meta { font-size: 9.5pt; color: #334155; margin-top: 22mm; }
+.cover .meta td { border: none; padding: 1.2mm 0; font-size: 9.5pt; background: transparent; }
+.cover .footer { position: absolute; bottom: 0; font-size: 8pt; color: #64748b; border-top: 0.6pt solid #cbd5e1; padding-top: 3mm; width: 100%; }
+.page-break { page-break-before: always; }
+.box { background: #f0fdfa; border-left: 3.5pt solid #0f766e; padding: 3mm 4mm; margin: 3mm 0 4mm 0; page-break-inside: avoid; }
+.warn { background: #fff7ed; border-left: 3.5pt solid #ea580c; padding: 3mm 4mm; margin: 3mm 0 4mm 0; page-break-inside: avoid; }
+.small { font-size: 8.2pt; color: #475569; }
+.tag { display: inline-block; background: #ccfbf1; color: #115e59; font-size: 7.8pt; font-weight: bold; padding: 0.7mm 2mm; border-radius: 2mm; }
+.gray { color: #64748b; }
+.center { text-align: center; }
+.kpi { width: 100%; border-collapse: separate; border-spacing: 2mm 0; margin: 2mm 0 4mm 0; }
+.kpi td { background: #f0fdfa; border: 0.6pt solid #99f6e4; padding: 3mm; text-align: center; font-size: 8.3pt; }
+.kpi .num { display: block; font-size: 15pt; font-weight: bold; color: #0f766e; }
+</style>
+</head>
+<body>
+
+<!-- PORTADA -->
+<div class="cover">
+  <div class="brand">MYTARIK · CLASIFICACIÓN ADUANERA</div>
+  <div class="rule"></div>
+  <h1>Informe de continuidad<br>y accesos necesarios</h1>
+  <div class="subtitle">Qué tenemos, qué falta y qué necesitamos de Sergi para retomar el desarrollo y el despliegue</div>
+
+  <table class="meta">
+    <tr><td><strong>Preparado para</strong></td><td>Sergi — owner de Mytarik</td></tr>
+    <tr><td><strong>Preparado por</strong></td><td>Seby</td></tr>
+    <tr><td><strong>Fecha</strong></td><td>13 de noviembre de 2026</td></tr>
+    <tr><td><strong>Estado</strong></td><td>Documento de trabajo para revisión y aprobación</td></tr>
+    <tr><td><strong>Confidencialidad</strong></td><td>No contiene claves ni secretos</td></tr>
+  </table>
+
+  <div class="box">
+    <strong>Resumen en una frase:</strong> el entorno local y el código ya están preparados; el bloqueo principal es el acceso a Azure, en particular la identidad administrada para Azure Translator, y las decisiones de despliegue y coste.
+  </div>
+
+  <div class="footer">Mytarik · Informe de continuidad · 13/11/2026 · Documento de trabajo</div>
+</div>
+
+<!-- 1. ESTADO -->
+<div class="page-break"></div>
+<h2>1. Dónde estamos</h2>
+
+<p>El proyecto está en un punto sólido: el repositorio principal incorpora el proveedor LLM local, el entorno Linux está operativo y el hardware permite ejecutar modelos grandes. Lo que falta no es código base, sino acceso a la infraestructura Azure y cerrar dos decisiones técnicas.</p>
+
+<h3>Estado del repositorio</h3>
+<table>
+  <tr><th style="width:38%">Elemento</th><th>Estado</th></tr>
+  <tr><td>Repositorio</td><td><code>asensionacher/mytarik</code></td></tr>
+  <tr><td>Rama principal</td><td><code>main</code></td></tr>
+  <tr><td>Último commit</td><td><code>e8b9091</code> — Merge PR #1: proveedor LLM local</td></tr>
+  <tr><td>PR del proveedor local</td><td>Fusionado</td></tr>
+  <tr><td>Variables de entorno</td><td>No existe <code>.env</code> en el entorno local</td></tr>
+  <tr><td>Qdrant</td><td>No arrancado en local</td></tr>
+  <tr><td>Catálogo HS</td><td>Pendiente de ingestar (~5.300 códigos)</td></tr>
+</table>
+
+<h3>Estado del entorno local</h3>
+<table>
+  <tr><th style="width:38%">Elemento</th><th>Estado</th></tr>
+  <tr><td>Sistema</td><td>Linux Mint 22.3, kernel 7.0, NVIDIA 595 / CUDA 13.2</td></tr>
+  <tr><td>Hardware</td><td>Xeon E5-2690 v4, 112 GB RAM, 3 × RTX 2080 Ti, NVMe 1 TB</td></tr>
+  <tr><td>GPUs</td><td>Las tres desbloqueadas con <code>gpu_unlock</code>; estables</td></tr>
+  <tr><td>Contenedores</td><td>Docker 29.1.3 y Compose 2.40.3 instalados</td></tr>
+  <tr><td>LLM local</td><td>DeepSeek V4 Flash IQ3_XXS con llama.cpp, ~6,3 tok/s</td></tr>
+  <tr><td>Modelo de código</td><td>Qwen3.8 Coder con Strata y OpenCode</td></tr>
+  <tr><td>Azure CLI / credenciales</td><td>No instaladas / no configuradas</td></tr>
+</table>
+
+<table class="kpi">
+  <tr>
+    <td><span class="num">3</span>GPUs operativas</td>
+    <td><span class="num">112 GB</span>RAM</td>
+    <td><span class="num">1 TB</span>NVMe</td>
+    <td><span class="num">~6,3</span>tok/s DeepSeek</td>
+  </tr>
+</table>
+
+<div class="box">
+  <strong>Conclusión:</strong> la parte local está lista para revisar código, ejecutar tests y probar la app. La parte Azure es la que impide completar una clasificación real de facturas en español.
+</div>
+
+<!-- 2. BLOQUEO -->
+<div class="page-break"></div>
+<h2>2. El bloqueo principal: traducción y Azure</h2>
+
+<p>La clasificación puede funcionar con un proveedor local, pero la traducción sigue dependiendo de Azure Translator. El código actual usa <code>ManagedIdentityCredential</code>, que solo existe dentro de un recurso Azure con identidad administrada. En un Linux local no hay esa identidad.</p>
+
+<h3>Qué ocurre hoy</h3>
+<table>
+  <tr><th style="width:32%">Pieza</th><th>Estado</th><th>Consecuencia</th></tr>
+  <tr><td>Clasificación con LLM local</td><td>Disponible</td><td>Puede probarse con Qwen o DeepSeek</td></tr>
+  <tr><td>Azure Foundry</td><td>Sin acceso</td><td>No se puede usar el modelo gestionado</td></tr>
+  <tr><td>Azure Translator</td><td>Sin acceso ni identidad</td><td><strong>Bloquea la clasificación real</strong></td></tr>
+  <tr><td>Managed Identity</td><td>No existe en local</td><td>Falla al traducir</td></tr>
+  <tr><td>Despliegue Azure</td><td>Sin credenciales</td><td>No se puede desplegar</td></tr>
+</table>
+
+<div class="warn">
+  <strong>Riesgo si no se resuelve:</strong> la app puede arrancar y clasificar en inglés, pero una factura en español fallará en la traducción. No es un problema de código de negocio; es un problema de autenticación e infraestructura.
+</div>
+
+<h3>Las tres opciones</h3>
+<table>
+  <tr><th style="width:24%">Opción</th><th>Qué implica</th><th style="width:26%">Recomendación</th></tr>
+  <tr><td><strong>A. Azure completo</strong></td><td>Desplegar en Azure con identidad administrada, Foundry y Translator</td><td>La más fiel al diseño actual; recomendada para producción</td></tr>
+  <tr><td><strong>B. Translator con clave o service principal</strong></td><td>Cambiar <code>translation.py</code> para aceptar una credencial de desarrollo</td><td>Útil para local; requiere una decisión de arquitectura</td></tr>
+  <tr><td><strong>C. Traducción local</strong></td><td>Añadir un proveedor local de traducción con Qwen u otro modelo</td><td>Más trabajo y riesgo de calidad; no mezclar con producción sin medir</td></tr>
+</table>
+
+<p class="small">La opción B o C debe aprobarla el owner. El diseño actual mantiene Translator como dependencia obligatoria y no incluye fallback silencioso.</p>
+
+<!-- 3. ACCESOS -->
+<div class="page-break"></div>
+<h2>3. Qué necesitamos de Sergi</h2>
+
+<p>Para avanzar sin bloquearnos, necesitamos acceso de desarrollo, no acceso total a producción. La siguiente lista está ordenada por prioridad.</p>
+
+<table>
+  <tr><th style="width:5%">#</th><th style="width:28%">Necesitamos</th><th>Para qué</th><th style="width:15%">Prioridad</th></tr>
+  <tr><td>1</td><td>Suscripción Azure y resource group de desarrollo</td><td>Desplegar y probar sin tocar producción</td><td><span class="tag">Bloqueante</span></td></tr>
+  <tr><td>2</td><td>Presupuesto máximo y alertas de coste</td><td>Evitar gastos accidentales</td><td><span class="tag">Bloqueante</span></td></tr>
+  <tr><td>3</td><td>Service principal o usuario con permisos limitados</td><td>Ejecutar <code>az</code> y desplegar</td><td><span class="tag">Bloqueante</span></td></tr>
+  <tr><td>4</td><td>Endpoint del proyecto Azure AI Foundry</td><td>Clasificación con el modelo gestionado</td><td><span class="tag">Alta</span></td></tr>
+  <tr><td>5</td><td>Endpoint de Azure Translator</td><td>Traducción de facturas en español</td><td><span class="tag">Bloqueante</span></td></tr>
+  <tr><td>6</td><td>Roles: Azure AI User y Cognitive Services User</td><td>Permisos mínimos sobre Foundry y Translator</td><td><span class="tag">Alta</span></td></tr>
+  <tr><td>7</td><td>Región objetivo y nombre del entorno</td><td>Coherencia de red, latencia y coste</td><td><span class="tag">Alta</span></td></tr>
+  <tr><td>8</td><td>Permiso de escritura en el repo o revisión de PRs</td><td>Integrar cambios y revisiones</td><td><span class="tag">Alta</span></td></tr>
+  <tr><td>9</td><td>Decisión sobre Qdrant en producción</td><td>Persistencia del catálogo HS</td><td><span class="tag">Media</span></td></tr>
+  <tr><td>10</td><td>Azure Container Registry o registry equivalente</td><td>Publicar imágenes de los servicios</td><td><span class="tag">Media</span></td></tr>
+</table>
+
+<h3>Permisos mínimos recomendados</h3>
+<table>
+  <tr><th style="width:36%">Ámbito</th><th>Rol</th></tr>
+  <tr><td>Resource group de desarrollo</td><td>Contributor</td></tr>
+  <tr><td>Proyecto Azure AI Foundry</td><td>Azure AI User</td></tr>
+  <tr><td>Recurso Azure Translator</td><td>Cognitive Services User</td></tr>
+  <tr><td>Azure Container Registry</td><td>AcrPush</td></tr>
+  <tr><td>Container Apps Environment</td><td>Contributor</td></tr>
+  <tr><td>Log Analytics / Application Insights</td><td>Monitoring Reader</td></tr>
+</table>
+
+<div class="warn">
+  <strong>Seguridad:</strong> no enviar secretos por chat, email ni WhatsApp. Usar Azure Key Vault, GitHub Secrets o el gestor de contraseñas del equipo. El PDF no contiene credenciales.
+</div>
+
+<!-- 4. DECISIONES -->
+<div class="page-break"></div>
+<h2>4. Decisiones técnicas pendientes</h2>
+
+<h3>4.1 Traducción</h3>
+<p>Es la decisión más importante. El código actual exige Azure Translator con identidad administrada. Para desarrollo local hay que elegir entre:</p>
+<ul>
+  <li><strong>Mantener Azure Translator</strong> y probar dentro de Azure o con una credencial de desarrollo.</li>
+  <li><strong>Añadir una credencial de service principal o clave</strong> solo para desarrollo, sin cambiar el comportamiento de producción.</li>
+  <li><strong>Implementar traducción local</strong>, con un proveedor alternativo y una evaluación de calidad antes de usarlo.</li>
+</ul>
+<p><strong>Recomendación:</strong> no mezclar. Producción con Azure Translator e identidad administrada; desarrollo con una vía explícita y separada, aprobada por el owner.</p>
+
+<h3>4.2 Proveedor LLM</h3>
+<p>El proveedor se selecciona solo por entorno:</p>
+<table>
+  <tr><th style="width:28%">Variable</th><th>Valor</th><th>Uso</th></tr>
+  <tr><td><code>LLM_PROVIDER</code></td><td><code>azure</code> o <code>local</code></td><td>Azure por defecto; local opt-in</td></tr>
+  <tr><td><code>AZURE_AI_PROJECT_ENDPOINT</code></td><td>Endpoint Foundry</td><td>Clasificación Azure</td></tr>
+  <tr><td><code>AZURE_AI_MODEL_DEPLOYMENT</code></td><td><code>MAI-Thinking-1</code></td><td>Deployment del modelo</td></tr>
+  <tr><td><code>AZURE_TRANSLATOR_ENDPOINT</code></td><td>Endpoint Translator</td><td>Traducción</td></tr>
+  <tr><td><code>LOCAL_LLM_BASE_URL</code></td><td>URL local</td><td>Solo si <code>LLM_PROVIDER=local</code></td></tr>
+</table>
+<p>No hay selector de proveedor en API ni en UI, y no debe haber fallback silencioso. Un error del proveedor elegido debe verse como error.</p>
+
+<h3>4.3 Qdrant y datos</h3>
+<p>Qdrant guarda el catálogo HS y los embeddings. En local se puede usar Docker; en Azure hay que decidir entre Qdrant gestionado, contenedor con almacenamiento persistente o una base vectorial equivalente. La decisión afecta a coste, backup y latencia.</p>
+
+<h3>4.4 Despliegue</h3>
+<table>
+  <tr><th style="width:32%">Pieza</th><th>Propuesta inicial</th></tr>
+  <tr><td>Frontend</td><td>Container Apps o Static Web Apps</td></tr>
+  <tr><td>webapp-backend</td><td>Container Apps</td></tr>
+  <tr><td>tariffai-api</td><td>Container Apps con identidad administrada</td></tr>
+  <tr><td>Qdrant</td><td>Container Apps con volumen persistente o servicio gestionado</td></tr>
+  <tr><td>Imágenes</td><td>Azure Container Registry</td></tr>
+  <tr><td>Secretos</td><td>Azure Key Vault</td></tr>
+  <tr><td>Observabilidad</td><td>Log Analytics + Application Insights</td></tr>
+</table>
+
+<!-- 5. PLAN -->
+<div class="page-break"></div>
+<h2>5. Plan de arranque y checklist</h2>
+
+<h3>Primeras 48 horas, si llega el acceso</h3>
+<table>
+  <tr><th style="width:7%">Fase</th><th>Qué haremos</th><th style="width:22%">Resultado</th></tr>
+  <tr><td>1</td><td>Validar acceso, región, presupuesto y roles</td><td>Entorno controlado</td></tr>
+  <tr><td>2</td><td>Crear <code>.env</code> de desarrollo sin secretos en el repo</td><td>Configuración reproducible</td></tr>
+  <tr><td>3</td><td>Probar Translator y Foundry con una llamada mínima</td><td>Conectividad verificada</td></tr>
+  <tr><td>4</td><td>Arrancar Qdrant e ingestAR el catálogo HS</td><td>Búsqueda semántica lista</td></tr>
+  <tr><td>5</td><td>Ejecutar TariffAI, backend y frontend en local</td><td>Flujo end-to-end</td></tr>
+  <tr><td>6</td><td>Ejecutar tests y revisar el código de Qwen</td><td>Calidad validada</td></tr>
+  <tr><td>7</td><td>Desplegar en el resource group de desarrollo</td><td>URL de pruebas</td></tr>
+  <tr><td>8</td><td>Medir latencia, coste y errores</td><td>Decisión de producción</td></tr>
+</table>
+
+<h3>Checklist para Sergi</h3>
+<table>
+  <tr><th style="width:8%">Hecho</th><th>Elemento</th></tr>
+  <tr><td>☐</td><td>Resource group de desarrollo creado</td></tr>
+  <tr><td>☐</td><td>Presupuesto y alertas configurados</td></tr>
+  <tr><td>☐</td><td>Service principal o usuario de desarrollo disponible</td></tr>
+  <tr><td>☐</td><td>Endpoint de Foundry y deployment <code>MAI-Thinking-1</code></td></tr>
+  <tr><td>☐</td><td>Endpoint de Azure Translator</td></tr>
+  <tr><td>☐</td><td>Roles Azure AI User y Cognitive Services User asignados</td></tr>
+  <tr><td>☐</td><td>Región y nombre del entorno decididos</td></tr>
+  <tr><td>☐</td><td>Acceso al repositorio y flujo de PR acordado</td></tr>
+  <tr><td>☐</td><td>Decisión sobre Qdrant en producción</td></tr>
+  <tr><td>☐</td><td>Canal seguro para secretos acordado</td></tr>
+</table>
+
+<h3>Qué no necesitamos todavía</h3>
+<ul>
+  <li>Acceso de owner a producción.</li>
+  <li>Permisos de facturación global.</li>
+  <li>Cambiar el modelo o la arquitectura sin medir.</li>
+  <li>Comprar hardware nuevo: el equipo local es suficiente para desarrollo y pruebas.</li>
+</ul>
+
+<div class="box">
+  <strong>Petición concreta:</strong> danos acceso de desarrollo al resource group, el endpoint de Translator, el endpoint de Foundry y un presupuesto máximo. Con eso podemos validar el flujo completo y desplegar una versión de pruebas sin tocar producción.
+</div>
+
+<p class="small" style="margin-top:8mm;">Documento preparado el 13/11/2026. Las cifras de rendimiento local corresponden a pruebas realizadas con DeepSeek V4 Flash IQ3_XXS y llama.cpp en el equipo de Seby; no son una garantía de producción. No se incluyen claves, tokens ni secretos.</p>
+
+</body>
+</html>

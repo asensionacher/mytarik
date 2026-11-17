@@ -236,8 +236,13 @@ def retrieve_candidates(cleaned_text: str, top_k: int | None = None) -> list[HSC
     if top_k is None:
         top_k = TOP_K_CANDIDATES
 
-    # Translate once: HS descriptions are in English, queries often aren't.
-    query_for_retrieval = _translate_to_en(cleaned_text)
+    # Translate once when possible: HS descriptions are in English. Reference
+    # lookups must not fail just because a short query is detected as a
+    # language the local MT provider does not support.
+    try:
+        query_for_retrieval = _translate_to_en(cleaned_text)
+    except Exception:
+        query_for_retrieval = cleaned_text
 
     # Run both retrieval strategies
     semantic_results = _search_semantic(query_for_retrieval, top_k)

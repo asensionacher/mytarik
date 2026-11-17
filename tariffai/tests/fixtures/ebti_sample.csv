@@ -1,0 +1,5 @@
+BTI_REFERENCE,ISSUING_COUNTRY,START_DATE_OF_VALIDITY,END_DATE_OF_VALIDITY,NOMENCLATURE_CODE,CLASSIFICATION_JUSTIFICATION,STATUS,INVALIDATION_REASON,INVALIDATION_JUSTIFICATION,LANGUAGE,PLACE_OF_ISSUE,DATE_OF _ISSUE,NAME_AND_ADDRESS,DESCRIPTION_OF_GOODS,KEYWORDS
+DEBTI-DE-2026-0001,DE,01/02/2026,31/01/2029,6205200000************,"GIR 1 and 6; cotton shirts.","VALID","","","de","Berlin","01/02/2026","Trader","Men's woven cotton shirts","shirts cotton"
+ESBTI-ES-2026-0002,ES,15/03/2026,14/03/2029,39264000,"Plastic statuettes.","VALID","","","es","Madrid","15/03/2026","Trader","Plastic decorative statuettes","plastic statuette"
+FRBTI-FR-2026-0003,FR,20/04/2026,19/04/2029,73181950,"Invalidated decision.","INVALID","Change of classification","","fr","Paris","20/04/2026","Trader","Steel locknut","steel locknut"
+GBBTI-GB-2020-0004,GB,01/01/2020,31/12/2020,6110309900************,"Pre-Brexit GB decision.","VALID","","","en","London","01/01/2020","Trader","Knitted pullover","pullover"

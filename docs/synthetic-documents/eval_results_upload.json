@@ -1,0 +1,77 @@
+{
+  "generated_at": "2026-11-14T21:11:06.305203+00:00",
+  "pack_id": "EU-SYN-2026-11",
+  "warning": "TARIC 10-digit suffixes are illustrative. Verify against the official TARIC database before production or real customs use.",
+  "documents_processed": 1,
+  "documents_requested": 1,
+  "lines_total": 4,
+  "lines_matched_to_ground_truth": 4,
+  "cn8_hits": 4,
+  "taric10_hits": 1,
+  "errors": [],
+  "documents": [
+    {
+      "file": "01_commercial_invoice_CN_ES.pdf",
+      "status": "ok",
+      "items": [
+        {
+          "description": "Men's woven cotton shirts, long sleeve, 100% cotton, 120 pcs, cartons of 20",
+          "status": "classified",
+          "predicted_cn8": "62052000",
+          "predicted_taric10": "6205200000",
+          "primary_code": "6205200000",
+          "expected_cn8": "62052000",
+          "expected_taric10": "6205200000",
+          "matched": true,
+          "cn8_hit": true,
+          "taric10_hit": true,
+          "confidence": 0.9839,
+          "error": null
+        },
+        {
+          "description": "Cotton bed linen, printed, 100% cotton, 80 sets,",
+          "status": "classified",
+          "predicted_cn8": "63022100",
+          "predicted_taric10": null,
+          "primary_code": "63022100",
+          "expected_cn8": "63022100",
+          "expected_taric10": "6302210000",
+          "matched": true,
+          "cn8_hit": true,
+          "taric10_hit": false,
+          "confidence": 1.0,
+          "error": null
+        },
+        {
+          "description": "Spark plugs for spark-ignition engines, model 8511 10 00I8511 10 00 00 CN 500 EUR 4,20 EUR 2.100,00",
+          "status": "classified",
+          "predicted_cn8": "85111000",
+          "predicted_taric10": null,
+          "primary_code": "85111000",
+          "expected_cn8": "85111000",
+          "expected_taric10": "8511100000",
+          "matched": true,
+          "cn8_hit": true,
+          "taric10_hit": false,
+          "confidence": 0.95,
+          "error": null
+        },
+        {
+          "description": "Extra virgin olive oil, 1 L glass bottles, 60 bottles",
+          "status": "classified",
+          "predicted_cn8": "15091010",
+          "predicted_taric10": null,
+          "primary_code": "15091010",
+          "expected_cn8": "15091010",
+          "expected_taric10": "1509101000",
+          "matched": true,
+          "cn8_hit": true,
+          "taric10_hit": false,
+          "confidence": 1.0,
+          "error": null
+        }
+      ],
+      "error": null
+    }
+  ]
+}

@@ -33,6 +33,23 @@ export function DetailPanel({ response }: Props) {
         </div>
       </section>
 
+      {result.classification_mode === "eu" ? (
+        <section>
+          <div className="text-xs uppercase tracking-wide text-slate-500">{s.euCodes}</div>
+          <div className="mt-1 flex flex-wrap gap-2">
+            <span className="rounded bg-teal-50 px-2 py-1 font-mono text-xs text-teal-800">
+              CN8 {result.cn8 ?? "—"}
+            </span>
+            <span className="rounded bg-teal-50 px-2 py-1 font-mono text-xs text-teal-800">
+              TARIC10 {result.taric10 ?? "—"}
+            </span>
+          </div>
+          {result.description ? (
+            <div className="mt-1 text-xs text-slate-600">{result.description}</div>
+          ) : null}
+        </section>
+      ) : null}
+
       <section>
         <div className="text-xs uppercase tracking-wide text-slate-500">{s.hierarchy}</div>
         <ul className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -103,7 +120,7 @@ export function DetailPanel({ response }: Props) {
               >
                 <div className="flex items-center gap-2">
                   <span className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-xs text-amber-800">
-                    {alt.code}
+                    {alt.taric10 ?? alt.cn8 ?? alt.code}
                   </span>
                   <span className="text-sm text-amber-900">{alt.description}</span>
                 </div>

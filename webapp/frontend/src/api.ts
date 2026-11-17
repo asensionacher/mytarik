@@ -3,7 +3,7 @@ import type {
   InvoiceUploadResponse, TradeDetails,
   ClarificationAnswer, ClassifyResponse,
   CustomsOperationRequest, CustomsOperationResponse,
-  ResolveTaricCodesResponse,
+  ResolveTaricCodesResponse, HS6LookupResponse,
 } from "./types";
 import { getLang } from "./i18n/strings";
 
@@ -206,4 +206,13 @@ export async function resolveTaricCodes(
     body: JSON.stringify({ hs_code: hsCode, country, language: getLang() }),
   });
   return jsonOrThrow<ResolveTaricCodesResponse>(res);
+}
+
+export async function hs6Lookup(query: string, topK: number = 5): Promise<HS6LookupResponse> {
+  const res = await fetch("/api/reference/hs6", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ query, top_k: topK }),
+  });
+  return jsonOrThrow<HS6LookupResponse>(res);
 }

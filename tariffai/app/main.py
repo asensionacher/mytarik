@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.schemas import (
     ClassifyRequest, BatchClassifyRequest,
     ClassifyResponse, ClassificationResult,
+    HS6LookupRequest, HS6LookupResponse, HS6Candidate,
 )
 from app.graph import classify_cargo
 from app.hs_retriever import initialize_retriever
@@ -134,3 +135,30 @@ def health_check():
             "points_count": collection_count,
         },
     }
+
+
+@app.post("/hs6/lookup", response_model=HS6LookupResponse)
+def hs6_lookup(req: HS6LookupRequest):
+    """
+    Retrieve international HS6 candidate codes for a cargo description.
+
+    Uses the Stage 2 hybrid retriever (Qdrant semantic + BM25, no LLM) to
+    find the top-K 6-digit HS codes whose official descriptions best match
+    the query. This is a *reference* lookup: the returned codes are
+    international HS6 codes and are NOT valid for an EU customs declaration
+    (which requires a CN8 or TARIC10 code). The EU classifier is never
+    invoked here.
+    """
+    from app.hs_retriever import retrieve_candidates
+
+    candidates = retrieve_candidates(req.query, top_k=req.top_k)
+    top_k = sorted(candidates, key=lambda c: c.retrieval_score, reverse=True)[: req.top_k]
+    notice = "Referencia internacional HS6. No válido para declaración UE."
+    return HS6LookupResponse(
+        query=req.query,
+        candidates=[
+            HS6Candidate(hs6=c.code, description=c.description, score=c.retrieval_score)
+            for c in top_k
+        ],
+        notice=notice,
+    )

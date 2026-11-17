@@ -1,4 +1,29 @@
+## Entorno Python del proyecto
+
+Usa siempre el entorno virtual del proyecto:
+
+```text
+/home/seby/mytarik/venv_taric/bin/python
+/home/seby/mytarik/venv_taric/bin/pip
+```
+
+No uses `pip install` global ni `--break-system-packages`. Las dependencias
+`aiohttp`, `PyMuPDF`, `pytesseract` y `pydantic` ya están instaladas.
+
+No planifiques en exceso: lee lo mínimo, escribe el código y ejecuta.
+
 # Repository guide
+
+## Modo directo para agentes locales
+
+- No explorar el repositorio con `find`, `ls -R` ni `grep` masivos.
+- Leer solo los archivos mencionados explícitamente en la tarea.
+- Máximo 2 lecturas antes de editar.
+- La primera acción debe ser escribir o parchear el archivo pedido.
+- No planificar más de 3 líneas.
+- Una tarea = una sesión. No llegar a compactación.
+- No hacer commit.
+- No tocar `eu_classifier.py`, `eu_retriever.py`, `eu_taric` ni `ebti_decisions` salvo petición explícita.
 
 ## Boundaries and entry points
 
@@ -39,7 +64,7 @@ docker compose up -d --build
 
 ## Contract invariants
 
-- The webapp→TariffAI payloads are strict: `extra="forbid"`. API/UI provider/model selection and Azure key overrides must not be reintroduced; classification provider is selected only by env `LLM_PROVIDER=azure|local`, with `azure` default and `local` opt-in. Azure access uses managed identity only. Local classification requires `LOCAL_LLM_BASE_URL` and `LOCAL_LLM_MODEL`; selected-provider errors must surface with no fallback, and translation remains Azure Translator even when classification uses local.
+- The webapp→TariffAI payloads are strict: `extra="forbid"`. API/UI provider/model selection and Azure key overrides must not be reintroduced; classification provider is selected only by env `LLM_PROVIDER=azure|local`, with `azure` default and `local` opt-in. Translation provider is selected only by env `TRANSLATION_PROVIDER=azure|local|local_mt`, with `azure` default, `local` for the local LLM and `local_mt` for the OPUS-MT/CTranslate2 models. Azure access uses managed identity only. Local classification requires `LOCAL_LLM_BASE_URL` and `LOCAL_LLM_MODEL`; local translation uses the same endpoint. Selected-provider errors must surface with no fallback.
 - Invoice routes carry one `trade` context (`trade_mode`, `origin_country`, `dispatch_country`) for the whole invoice: a nested `trade` object in JSON bodies, flat form fields in the multipart upload, and the same nested object towards TariffAI.
 - NDJSON events are `stage`, `ready`, `item`, `done`, and `error`. `item.index` may arrive out of order; the frontend reorders by index and must preserve `line_number`. A stream is incomplete without `done`.
 - Frontend types in `webapp/frontend/src/types.ts` mirror backend wire shapes. Update both sides and the relevant API tests when changing a contract.
@@ -53,7 +78,7 @@ docker compose up -d --build
 
 - Never run `docker compose down -v` unless the HS catalogue may be deleted. Qdrant data is in the persistent `mytarik_qdrant_data` volume.
 - First-time catalogue ingestion is `docker compose --profile init run --rm tariffai-init` (`make ingest`); it downloads the HS CSV and generates embeddings, so it is slow and must run against healthy Qdrant.
-- Azure Foundry and Translator require a host with system-assigned managed identity and the documented Azure roles. `/health` only proves the service process and Qdrant are reachable, not that Foundry/Translator calls succeed.
-- `LLM_PROVIDER=azure` is the default and keeps using Azure Foundry for classification; `LLM_PROVIDER=local` opts in to an OpenAI-compatible server via `LOCAL_LLM_BASE_URL` and `LOCAL_LLM_MODEL`, but translation still uses Azure Translator. There is no provider/model selector in the API or UI and no silent fallback between providers.
+- Azure Foundry and Azure Translator require a host with system-assigned managed identity and the documented Azure roles. `/health` only proves the service process and Qdrant are reachable, not that Foundry/Translator calls succeed. A completely local setup uses `LLM_PROVIDER=local` and `TRANSLATION_PROVIDER=local` and does not need the Azure SDK.
+- `LLM_PROVIDER=azure` is the default and keeps using Azure Foundry for classification; `LLM_PROVIDER=local` opts in to an OpenAI-compatible server via `LOCAL_LLM_BASE_URL` and `LOCAL_LLM_MODEL`. Translation is selected independently with `TRANSLATION_PROVIDER=azure|local|local_mt`; `local` reuses the local LLM endpoint, while `local_mt` uses the dedicated OPUS-MT models. There is no provider/model selector in the API or UI and no silent fallback between providers.
 - If `TARIFFAI_TIMEOUT` is increased, also increase `proxy_read_timeout` in `webapp/frontend/nginx.conf`.
 - `docker compose up -d --build` is required after source changes; the service images do not bind-mount source or copy the test directories.
