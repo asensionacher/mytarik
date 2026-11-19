@@ -71,6 +71,10 @@ services:
       UK_TARIFF_API_KEY: "${UK_TARIFF_API_KEY:-}"
     env_file:
       - .env
+    volumes:
+      - ./tariffai/models:/app/models:ro
+      - ./tariffai/taric_tree.json:/app/taric_tree.json:ro
+      - ./data/import_memory:/app/data
     extra_hosts:
       # El LLM local (llama-server/Strata) corre en el host, no en el contenedor.
       - "host.docker.internal:host-gateway"
@@ -96,6 +100,8 @@ services:
       TARIFFAI_URL: http://tariffai-api:8004
       TARIFFAI_TIMEOUT: "${TARIFFAI_TIMEOUT:-600}"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
+    volumes:
+      - ./tariffai/taric_tree.json:/app/taric_tree.json:ro
     ports:
       - "8005:8000"
     healthcheck:

@@ -151,12 +151,20 @@ def _get_local_translator() -> LocalLLMTranslator:
 
 
 class OPUSMTTranslator:
-    """Two specialized OPUS-MT models, converted to CTranslate2 int8.
+    """OPUS-MT models converted to CTranslate2 int8 for five EU languages.
 
-    ``es-en`` translates Spanish to English; ``en-es`` translates English to
-    Spanish. The models are small (~155 MB each) and run on CPU, so Qwen Coder
-    can stay loaded for OpenCode.
+    Direct pairs are es<->en, en<->fr, en<->de and en<->it. Any other pair
+    (for example es->fr) is translated through English as a pivot. All models
+    run on CPU, so Qwen Coder can stay loaded for OpenCode.
     """
+
+    SUPPORTED = ("en", "es", "fr", "de", "it")
+    PAIRS = (
+        ("es", "en"), ("en", "es"),
+        ("en", "fr"), ("fr", "en"),
+        ("en", "de"), ("de", "en"),
+        ("en", "it"), ("it", "en"),
+    )
 
     def __init__(self, root: str = LOCAL_TRANSLATION_DIR) -> None:
         from pathlib import Path
@@ -164,24 +172,28 @@ class OPUSMTTranslator:
         self.root = Path(root)
         if not self.root.is_absolute():
             self.root = Path(__file__).resolve().parents[1] / self.root
-        self.es_en = self.root / "es-en"
-        self.en_es = self.root / "en-es"
-        for directory in (self.es_en, self.en_es):
+        self.dirs = {pair: self.root / f"{pair[0]}-{pair[1]}" for pair in self.PAIRS}
+        for pair, directory in self.dirs.items():
             if not (directory / "model.bin").is_file():
                 raise RuntimeError(
-                    f"No se encontró el modelo de traducción en {directory}. "
-                    "Ejecuta scripts/download_translation_models.py"
+                    f"No se encontró el modelo de traducción {pair[0]}-{pair[1]} "
+                    f"en {directory}. Ejecuta scripts/download_translation_models.py"
                 )
         self._engines = {}
 
-    def _engine(self, direction: str):
+    def _engine(self, source: str, target: str):
+        direction = (source, target)
         if direction in self._engines:
             return self._engines[direction]
+        if direction not in self.dirs:
+            raise RuntimeError(
+                f"No hay modelo OPUS-MT directo para {source}->{target}"
+            )
         # Imported lazily so Azure-only deployments do not need ctranslate2.
         import ctranslate2
         import sentencepiece as spm
 
-        directory = self.es_en if direction == "es-en" else self.en_es
+        directory = self.dirs[direction]
         translator = ctranslate2.Translator(
             str(directory),
             device="cpu",
@@ -202,11 +214,31 @@ class OPUSMTTranslator:
             language = detect(text)
         except Exception:
             language = "unknown"
-        if language in {"es", "en"}:
+        if language in self.SUPPORTED:
             return language
         raise RuntimeError(
-            f"El traductor local_mt solo admite español e inglés; se detectó {language!r}"
+            f"El traductor local_mt no admite el idioma detectado {language!r}; "
+            f"admite {', '.join(self.SUPPORTED)}"
         )
+
+    def _direct(self, text: str, source: str, target: str) -> str:
+        if source == target:
+            return text
+        translator, source_sp, target_sp = self._engine(source, target)
+        tokens = source_sp.encode(text, out_type=str)
+        if not tokens:
+            raise RuntimeError("El traductor local_mt no pudo tokenizar el texto")
+        # OPUS-MT expects the source EOS token.
+        tokens.append("</s>")
+        results = translator.translate_batch(
+            [tokens], beam_size=4, max_decoding_length=512
+        )
+        if not results or not results[0].hypotheses:
+            raise RuntimeError("El traductor local_mt devolvió una traducción vacía")
+        translated = target_sp.decode(results[0].hypotheses[0]).strip()
+        if not translated:
+            raise RuntimeError("El traductor local_mt devolvió una traducción vacía")
+        return translated
 
     def translate(
         self,
@@ -216,47 +248,20 @@ class OPUSMTTranslator:
     ) -> str:
         if not text or not text.strip():
             return text
-
-        if target_language == "en":
-            source = (source_language or self._detect_source(text)).lower()
-            if source == "en":
-                return text
-            if source != "es":
-                raise RuntimeError(
-                    f"El traductor local_mt no soporta origen {source!r} hacia inglés"
-                )
-            direction = "es-en"
-        elif target_language == "es":
-            source = (source_language or "en").lower()
-            if source != "en":
-                raise RuntimeError(
-                    f"El traductor local_mt no soporta origen {source!r} hacia español"
-                )
-            direction = "en-es"
-        else:
+        source = (source_language or self._detect_source(text)).lower()
+        target = target_language.lower()
+        if source not in self.SUPPORTED or target not in self.SUPPORTED:
             raise RuntimeError(
-                f"El traductor local_mt solo soporta en/es, no {target_language!r}"
+                f"El traductor local_mt solo admite {', '.join(self.SUPPORTED)}; "
+                f"se pidió {source}->{target}"
             )
-
-        translator, source_sp, target_sp = self._engine(direction)
-        tokens = source_sp.encode(text, out_type=str)
-        if not tokens:
-            raise RuntimeError("El traductor local_mt no pudo tokenizar el texto")
-        # OPUS-MT is trained with the source EOS token; without it CTranslate2
-        # can enter a repetition loop.
-        tokens.append("</s>")
-        results = translator.translate_batch(
-            [tokens],
-            beam_size=4,
-            max_decoding_length=512,
-        )
-        if not results or not results[0].hypotheses:
-            raise RuntimeError("El traductor local_mt devolvió una traducción vacía")
-        translated = target_sp.decode(results[0].hypotheses[0]).strip()
-        if not translated:
-            raise RuntimeError("El traductor local_mt devolvió una traducción vacía")
-        return translated
-
+        if source == target:
+            return text
+        if source != "en" and target != "en":
+            # Pivot through English for pairs such as es->fr.
+            english = self._direct(text, source, "en")
+            return self._direct(english, "en", target)
+        return self._direct(text, source, target)
 
 @lru_cache(maxsize=1)
 def _get_mt_translator() -> OPUSMTTranslator:
@@ -317,8 +322,8 @@ def _translate(
 
 
 @lru_cache(maxsize=2048)
-def translate_to_en(text: str) -> str:
-    return _translate(text, "en")
+def translate_to_en(text: str, source_language: str | None = None) -> str:
+    return _translate(text, "en", source_language=source_language)
 
 
 @lru_cache(maxsize=2048)

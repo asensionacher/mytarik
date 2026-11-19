@@ -12,7 +12,12 @@ import time
 from typing import Any, Iterable, Sequence
 
 from app.cargo_preprocessor import preprocess_cargo_text
-from app.eu_retriever import EUCandidate, retrieve_eu_candidates
+from app.eu_retriever import EUCandidate, retrieve_eu_candidates, retrieve_family_hints
+from app.tree_index import tree_hints
+from app.product_analysis import analyze_product
+from app.tree_subject import hints_from_analysis
+from app.reranker import rerank_candidates
+from app.translation import translate_to_en
 from app.llm_provider import extract_json, get_provider
 from app.schemas import (
     ClarificationAnswer,
@@ -560,7 +565,19 @@ def classify_eu_cargo(
         if question and value:
             query = f"{query}\n{question}: {value}"
 
-    candidates = retrieve_eu_candidates(query)
+    # Understand the product first (head noun + material + synonyms), then
+    # constrain the tree. BM25 is only a fallback.
+    analysis = analyze_product(cleaned_text, language=language, provider=provider)
+    retrieval_text = str(analysis.get("english_query") or query)
+    family_hints = hints_from_analysis(analysis)
+    if not family_hints:
+        family_hints = tree_hints(retrieval_text, original_text=query) or retrieve_family_hints(query)
+    family_text = " ".join(
+        f"{item.get('heading', '')} {item.get('description', '')}" for item in family_hints[:3]
+    ).strip()
+    retrieval_query = f"{retrieval_text}\n{family_text}" if family_text else retrieval_text
+    candidates = retrieve_eu_candidates(retrieval_query, family_hints=family_hints)
+    candidates = rerank_candidates(retrieval_text, candidates)
     if not candidates:
         raise EUClassificationError(
             "No candidates were retrieved from eu_taric. Ingest or repair the "

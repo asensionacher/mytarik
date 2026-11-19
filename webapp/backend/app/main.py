@@ -31,6 +31,11 @@ from app.customs_client import (
     make_customs_client,
 )
 from app.invoice_parser import ParsedInvoice, parse_invoice, parse_text
+from app.import_extract import extract_descriptions
+from app.taric_lookup import ebti_evidence, validate_code
+from app.case_memory import lookup_case, remember_embedding, semantic_lookup, store_case
+from app.question_engine import filter_candidates, next_question
+from app.tree_questions import filter_by_branch, tree_question
 from app.tariffai_client import (
     ClarificationAnswer,
     HS6LookupResponse,
@@ -264,6 +269,131 @@ async def upload_invoice(
         "items": items,
         "trade": trade.model_dump(),
     }
+
+
+@app.post("/api/import/filter")
+async def import_filter(payload: dict[str, Any]) -> dict[str, Any]:
+    candidates = payload.get("candidates") if isinstance(payload.get("candidates"), list) else []
+    attribute = str(payload.get("attribute") or "")
+    if attribute == "tree" and payload.get("option_code"):
+        filtered = filter_by_branch(candidates, str(payload.get("option_code")))
+    else:
+        filtered = filter_candidates(
+            str(payload.get("description") or ""),
+            candidates,
+            attribute,
+            str(payload.get("answer") or ""),
+        )
+    return {"candidates": filtered}
+
+
+@app.post("/api/import/translate")
+async def import_translate(payload: dict[str, Any]) -> dict[str, Any]:
+    texts = payload.get("texts") if isinstance(payload.get("texts"), list) else []
+    target = str(payload.get("target_language") or "es")
+    source = payload.get("source_language")
+    source = str(source) if source else None
+    if target == source:
+        return {"translations": [str(text) for text in texts]}
+    translations = []
+    async with httpx.AsyncClient(timeout=120) as client:
+        for text in texts[:100]:
+            try:
+                body = {"text": str(text), "target_language": target}
+                if source:
+                    body["source_language"] = source
+                response = await client.post(
+                    f"{settings.tariffai_url}/translate",
+                    json=body,
+                )
+                response.raise_for_status()
+                translations.append(response.json().get("text", text))
+            except Exception:
+                translations.append(str(text))
+    return {"translations": translations}
+
+
+@app.post("/api/import/questions")
+async def import_questions(payload: dict[str, Any]) -> dict[str, Any]:
+    description = str(payload.get("description") or "")
+    candidates = payload.get("candidates") if isinstance(payload.get("candidates"), list) else []
+    language = str(payload.get("language") or "es")
+    # Stage 1: questions come from the TARIC tree; deterministic rules only
+    # remain a fallback when the candidates span separate roots.
+    question = tree_question(candidates, language) or next_question(description, candidates, language)
+    return {"question": question}
+
+
+@app.post("/api/import/cases/lookup")
+async def import_case_lookup(payload: dict[str, Any]) -> dict[str, Any]:
+    description = str(payload.get("description") or "")
+    trade = payload.get("trade") if isinstance(payload.get("trade"), dict) else None
+    language = str(payload.get("language") or "es")
+    version = str(payload.get("taric_version") or "2026-11")
+    result = lookup_case(description, trade, language, version)
+    if result:
+        return result
+    try:
+        semantic = await semantic_lookup(description, trade, language, version)
+        if semantic:
+            return semantic
+    except Exception:
+        logger.exception("Fallo en memoria semántica")
+    return {"hit": False}
+
+
+@app.post("/api/import/cases/confirm")
+async def import_case_confirm(payload: dict[str, Any]) -> dict[str, Any]:
+    description = str(payload.get("description") or "")
+    code = str(payload.get("code") or "")
+    trade = payload.get("trade") if isinstance(payload.get("trade"), dict) else None
+    language = str(payload.get("language") or "es")
+    version = str(payload.get("taric_version") or "2026-11")
+    try:
+        result = store_case(description, code, trade, language, version, str(payload.get("agent") or ""))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    try:
+        await remember_embedding(description, code, trade, language, version, int(result.get("confirmations", 1)))
+    except Exception:
+        logger.exception("No se pudo guardar el vector semántico")
+    return result
+
+
+@app.get("/api/import/evidence")
+async def import_evidence(code: str) -> dict[str, Any]:
+    try:
+        return await ebti_evidence(code)
+    except Exception as exc:
+        logger.exception("Fallo consultando evidencia EBTI")
+        raise HTTPException(502, f"No se pudo consultar EBTI: {exc}") from exc
+
+
+@app.post("/api/import/validate")
+async def import_validate(payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return await validate_code(str(payload.get("code") or ""))
+    except Exception as exc:
+        logger.exception("Fallo validando código TARIC")
+        raise HTTPException(502, f"No se pudo validar TARIC: {exc}") from exc
+
+
+@app.post("/api/import/extract")
+async def import_extract(file: UploadFile = File(...)) -> dict[str, Any]:
+    """Extrae hasta 100 descripciones de un PDF, hoja o archivo de texto."""
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Fichero vacío")
+    if len(raw) > settings.max_upload_bytes:
+        raise HTTPException(413, f"El fichero supera el límite de {settings.max_upload_bytes // (1024 * 1024)} MB")
+    try:
+        items = await run_in_threadpool(extract_descriptions, file.filename or "documento", raw)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Fallo extrayendo artículos")
+        raise HTTPException(500, f"No se pudo extraer el documento: {exc}") from exc
+    return {"filename": file.filename or "documento", "count": len(items), "items": items}
 
 
 @app.post("/api/classify")

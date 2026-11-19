@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from app.schemas import (
     ClassifyRequest, BatchClassifyRequest,
@@ -22,6 +23,7 @@ from app.schemas import (
 )
 from app.graph import classify_cargo
 from app.hs_retriever import initialize_retriever
+from app.taric_tree import get_node, node_view, tree_summary
 from app.config import QDRANT_HOST, QDRANT_PORT, QDRANT_COLLECTION
 from app.customs.router import router as customs_router
 from app.customs.service import close_client as close_customs_client
@@ -109,6 +111,51 @@ def batch_classify_endpoint(req: BatchClassifyRequest):
         except Exception as e:
             results.append(ClassifyResponse(status="error", error=str(e)))
     return results
+
+
+class EmbedRequest(BaseModel):
+    text: str
+
+
+class TranslateRequest(BaseModel):
+    text: str
+    target_language: str
+    source_language: str | None = None
+
+
+@app.post("/translate")
+def translate_endpoint(request: TranslateRequest) -> dict[str, str]:
+    """Internal endpoint for TARIC descriptions and EBTI evidence."""
+    from app.translation import _get_mt_translator
+
+    translator = _get_mt_translator()
+    text = translator.translate(
+        request.text,
+        request.target_language,
+        source_language=request.source_language,
+    )
+    return {"text": text}
+
+
+@app.post("/embed")
+def embed(request: EmbedRequest) -> dict[str, list[float]]:
+    """Internal endpoint: embedding for the shared multilingual e5 model."""
+    from app.eu_retriever import _get_embedder
+
+    return {"vector": _get_embedder()(request.text)}
+
+
+@app.get("/taric/tree")
+def taric_tree_summary() -> dict:
+    return tree_summary()
+
+
+@app.get("/taric/tree/{code}")
+def taric_tree_node(code: str) -> dict:
+    node = node_view(code)
+    if not node:
+        raise HTTPException(404, "Código no encontrado en el árbol TARIC")
+    return node
 
 
 @app.get("/health")

@@ -2,7 +2,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validat
 from typing import Literal
 
 
-ResponseLanguage = Literal["es", "en"]
+ResponseLanguage = Literal["es", "en", "fr", "de", "it"]
 TradeMode = Literal["import", "export"]
 ClassificationMode = Literal["eu", "legacy_hs6"]
 

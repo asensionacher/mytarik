@@ -348,3 +348,56 @@ export interface HS6LookupResponse {
   candidates: HS6Candidate[];
   notice: string;
 }
+
+// ── Importaciones (documentos de productos) ───────────────────────────
+export interface ImportExtractItem {
+  description: string;
+}
+
+export interface ImportExtractResponse {
+  filename: string;
+  count: number;
+  items: ImportExtractItem[];
+}
+
+export interface ImportEvidenceItem {
+  reference?: string;
+  cn8?: string;
+  taric10?: string;
+  description: string;
+  justification?: string;
+  country?: string;
+  status?: string;
+  start_date?: string;
+}
+
+export interface ImportEvidenceResponse {
+  code: string;
+  evidence: ImportEvidenceItem[];
+}
+
+export interface ImportValidateResponse {
+  valid: boolean;
+  code: string;
+  cn8?: string;
+  taric10?: string;
+  description?: string;
+  error?: string;
+}
+
+export interface ImportCaseLookup {
+  hit: boolean;
+  code?: string;
+  description?: string;
+  confirmations?: number;
+  agent?: string;
+  updated_at?: string;
+}
+
+export interface ImportQuestion {
+  question: string;
+  options: string[];
+  attribute: string;
+  option_codes?: string[];
+  parent_code?: string;
+}

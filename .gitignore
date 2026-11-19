@@ -39,3 +39,4 @@ docs/**/*.zip
 data/
 venv_taric/
 .fixed-crawler/
+tariffai/taric_tree.json

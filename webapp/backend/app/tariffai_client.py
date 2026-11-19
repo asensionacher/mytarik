@@ -23,7 +23,7 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-ResponseLanguage = Literal["es", "en"]
+ResponseLanguage = Literal["es", "en", "fr", "de", "it"]
 
 
 class ClarificationAnswer(BaseModel):

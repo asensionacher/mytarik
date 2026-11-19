@@ -1,5 +1,6 @@
 import type {
   ClassificationEvent, ClassificationProgress, HealthResponse, InvoiceItem,
+  ImportExtractResponse, ImportEvidenceResponse, ImportValidateResponse, ImportCaseLookup, ImportQuestion,
   InvoiceUploadResponse, TradeDetails,
   ClarificationAnswer, ClassifyResponse,
   CustomsOperationRequest, CustomsOperationResponse,
@@ -64,10 +65,18 @@ export async function uploadInvoice(
   return jsonOrThrow<InvoiceUploadResponse>(res);
 }
 
+export async function extractImportFile(file: File): Promise<ImportExtractResponse> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch("/api/import/extract", { method: "POST", body: fd });
+  return jsonOrThrow<ImportExtractResponse>(res);
+}
+
 export async function classifyRaw(
   text: string,
   trade: TradeDetails,
   onProgress?: (progress: ClassificationProgress) => void,
+  language: string = getLang(),
 ): Promise<InvoiceUploadResponse> {
   const res = await fetch("/api/classify/raw", {
     method: "POST",
@@ -75,7 +84,7 @@ export async function classifyRaw(
       "content-type": "application/json",
       ...(onProgress ? { accept: "application/x-ndjson" } : {}),
     },
-    body: JSON.stringify({ text, language: getLang(), trade }),
+    body: JSON.stringify({ text, language, trade }),
   });
   if (onProgress) return readProgress(res, onProgress);
   return jsonOrThrow<InvoiceUploadResponse>(res);
@@ -85,12 +94,13 @@ export async function answerClarification(
   description: string,
   trade: TradeDetails,
   clarificationAnswers: ClarificationAnswer[],
+  language: string = getLang(),
 ): Promise<ClassifyResponse> {
   const res = await fetch("/api/classify", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      description, trade, language: getLang(), clarification_answers: clarificationAnswers,
+      description, trade, language, clarification_answers: clarificationAnswers,
     }),
   });
   return jsonOrThrow<ClassifyResponse>(res);
@@ -215,4 +225,67 @@ export async function hs6Lookup(query: string, topK: number = 5): Promise<HS6Loo
     body: JSON.stringify({ query, top_k: topK }),
   });
   return jsonOrThrow<HS6LookupResponse>(res);
+}
+
+export async function fetchEbtiEvidence(code: string): Promise<ImportEvidenceResponse> {
+  const res = await fetch(`/api/import/evidence?code=${encodeURIComponent(code)}`);
+  return jsonOrThrow<ImportEvidenceResponse>(res);
+}
+
+export async function validateTaricCode(code: string): Promise<ImportValidateResponse> {
+  const res = await fetch("/api/import/validate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  return jsonOrThrow<ImportValidateResponse>(res);
+}
+
+export async function lookupImportCase(description: string, trade: TradeDetails, language: string): Promise<ImportCaseLookup> {
+  const res = await fetch("/api/import/cases/lookup", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ description, trade, language, taric_version: "2026-11" }),
+  });
+  return jsonOrThrow<ImportCaseLookup>(res);
+}
+
+export async function storeImportCase(description: string, code: string, trade: TradeDetails, language: string): Promise<ImportCaseLookup> {
+  const res = await fetch("/api/import/cases/confirm", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ description, code, trade, language, taric_version: "2026-11" }),
+  });
+  return jsonOrThrow<ImportCaseLookup>(res);
+}
+
+export async function fetchImportQuestion(description: string, candidates: { code: string; description?: string }[], language: string): Promise<ImportQuestion | null> {
+  const res = await fetch("/api/import/questions", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ description, candidates, language }),
+  });
+  const data = await jsonOrThrow<{ question: ImportQuestion | null }>(res);
+  return data.question;
+}
+
+export async function filterImportCandidates(description: string, candidates: { code: string; description?: string }[], attribute: string, answer: string, optionCode?: string): Promise<{ code: string; description?: string }[]> {
+  const res = await fetch("/api/import/filter", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ description, candidates, attribute, answer, option_code: optionCode }),
+  });
+  const data = await jsonOrThrow<{ candidates: { code: string; description?: string }[] }>(res);
+  return data.candidates;
+}
+
+export async function translateImportTexts(texts: string[], targetLanguage: string): Promise<string[]> {
+  if (!texts.length || targetLanguage === "en") return texts;
+  const res = await fetch("/api/import/translate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ texts, target_language: targetLanguage }),
+  });
+  const data = await jsonOrThrow<{ translations: string[] }>(res);
+  return data.translations;
 }

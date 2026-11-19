@@ -98,24 +98,40 @@ def _entry_key(payload: dict) -> str:
 # ── Semantic Search ─────────────────────────────────────────────────────
 
 def _search_semantic(
-    query_text: str, top_k: int, client, embedder: Embedder
+    query_text: str,
+    top_k: int,
+    client,
+    embedder: Embedder,
+    headings: Sequence[str] | None = None,
+    cn8s: Sequence[str] | None = None,
 ) -> list[tuple[dict, float]]:
     query_vec = embedder(f"query: {query_text}")
+    query_filter = None
+    if cn8s:
+        from qdrant_client.models import FieldCondition, Filter, MatchAny
+        query_filter = Filter(must=[FieldCondition(key="cn8", match=MatchAny(any=list(cn8s)))])
+    elif headings:
+        from qdrant_client.models import FieldCondition, Filter, MatchAny
+        query_filter = Filter(must=[FieldCondition(key="heading", match=MatchAny(any=list(headings)))])
 
     if hasattr(client, "query_points"):
+        kwargs = {"query_filter": query_filter} if query_filter is not None else {}
         response = client.query_points(
             collection_name=EU_TARIC_COLLECTION,
             query=query_vec,
             limit=top_k * 2,
             with_payload=True,
+            **kwargs,
         )
         hits = response.points
     else:
+        kwargs = {"query_filter": query_filter} if query_filter is not None else {}
         hits = client.search(
             collection_name=EU_TARIC_COLLECTION,
             query_vector=query_vec,
             limit=top_k * 2,
             with_payload=True,
+            **kwargs,
         )
     return [(hit.payload, float(hit.score)) for hit in hits]
 
@@ -186,6 +202,7 @@ def retrieve_eu_candidates(
     *,
     client=None,
     embedder: Embedder | None = None,
+    family_hints: Sequence[dict] | None = None,
 ) -> list[EUCandidate]:
     """
     Retrieve Top-K CN8/TARIC10 candidates from the `eu_taric` collection using
@@ -208,13 +225,43 @@ def retrieve_eu_candidates(
     client = client if client is not None else _get_qdrant()
     embedder = embedder if embedder is not None else _get_embedder()
 
-    semantic_results = _search_semantic(query_text, top_k, client, embedder)
-    bm25_results = _search_bm25(query_text, top_k, client)
+    # Retrieve a wider pool, then prefer headings supported by EBTI evidence.
+    pool = max(top_k * 5, top_k + 20)
+    headings = {str(item.get("heading")) for item in (family_hints or []) if item.get("heading")}
+    cn8s = {str(item.get("cn8")) for item in (family_hints or []) if item.get("cn8")}
+    strict_headings = {str(item.get("heading")) for item in (family_hints or []) if item.get("strict") and item.get("heading")}
+    strict_subheadings = {str(item.get("subheading")) for item in (family_hints or []) if item.get("strict") and item.get("subheading")}
+    strict_terms = tuple({str(term).lower() for item in (family_hints or []) for term in (item.get("terms") or ())})
+    semantic_results = _search_semantic(query_text, pool, client, embedder)
+    if headings or cn8s:
+        family_results = _search_semantic(
+            query_text, pool, client, embedder, headings=headings, cn8s=cn8s
+        )
+        semantic_results = family_results + semantic_results
+    bm25_results = _search_bm25(query_text, pool, client)
     fused = _reciprocal_rank_fusion(semantic_results, bm25_results)
 
-    candidates: list[EUCandidate] = []
-    for payload, score in fused[:top_k]:
+    scored: list[tuple[dict, float]] = []
+    for payload, score in fused:
         normalized = min(score / _MAX_SCORE, 1.0) if _MAX_SCORE > 0 else 0.0
+        cn8 = str(payload.get("cn8") or "")
+        if headings and cn8[:4] in headings:
+            normalized = min(1.0, normalized + 0.20)
+        scored.append((payload, normalized))
+    if strict_headings:
+        filtered = [(payload, score) for payload, score in scored if str(payload.get("cn8") or "")[:4] in strict_headings]
+        if strict_subheadings:
+            filtered = [(payload, score) for payload, score in filtered if str(payload.get("cn8") or "")[:6] in strict_subheadings]
+        if strict_terms:
+            term_filtered = [(payload, score) for payload, score in filtered if any(term in str(payload.get("description") or "").lower() for term in strict_terms)]
+            if term_filtered:
+                filtered = term_filtered
+        if filtered:
+            scored = filtered
+    scored.sort(key=lambda pair: pair[1], reverse=True)
+
+    candidates: list[EUCandidate] = []
+    for payload, normalized in scored[:top_k]:
         candidates.append(
             EUCandidate(
                 cn8=str(payload.get("cn8") or ""),
@@ -226,7 +273,93 @@ def retrieve_eu_candidates(
     return candidates
 
 
+
+def retrieve_family_hints(query_text: str, top_k: int = 5) -> list[dict]:
+    """Use EBTI decisions to propose TARIC headings before retrieval.
+
+    EBTI is evidence, not the nomenclature: the returned headings only guide
+    candidate retrieval and never become the final answer.
+    """
+    try:
+        client = _get_qdrant()
+        embedder = _get_embedder()
+        vector = embedder(f"query: {query_text}")
+        if hasattr(client, "query_points"):
+            response = client.query_points(
+                collection_name="ebti_decisions", query=vector, limit=top_k * 4,
+                with_payload=True,
+            )
+            hits = response.points
+        else:
+            hits = client.search(
+                collection_name="ebti_decisions", query_vector=vector,
+                limit=top_k * 4, with_payload=True,
+            )
+    except Exception as exc:  # EBTI is optional support, never a hard dependency.
+        logger.info("EBTI family hints unavailable: %s", exc)
+        return []
+
+    groups: dict[str, dict] = {}
+    for hit in hits:
+        payload = hit.payload or {}
+        cn8 = str(payload.get("cn8") or "")
+        if len(cn8) < 4:
+            continue
+        heading = cn8[:4]
+        entry = groups.setdefault(heading, {
+            "heading": heading, "cn8": cn8, "description": payload.get("description") or "",
+            "score": 0.0, "hits": 0,
+        })
+        entry["score"] = max(entry["score"], float(getattr(hit, "score", 0.0) or 0.0))
+        entry["hits"] += 1
+    ordered = sorted(groups.values(), key=lambda item: (item["hits"], item["score"]), reverse=True)
+    return ordered[:top_k]
+
 def initialize_eu_retriever() -> None:
     """Pre-warm the embedding model so the first request isn't slow."""
     _get_embedder()
     logger.info("[TariffAI] EU retriever initialized: embedding model loaded.")
+
+
+def retrieve_heading_pool(headings: Sequence[str], limit_per_heading: int = 1000, client=None) -> list[EUCandidate]:
+    """Return all TARIC entries in the matching headings, not just top vectors.
+
+    This is the candidate pool used by tree questions. It intentionally keeps
+    every CN8/TARIC10 in the branch so a correct leaf cannot disappear because
+    of a short or generic description such as "Other".
+    """
+    from qdrant_client.models import FieldCondition, Filter, MatchAny
+
+    client = client if client is not None else _get_qdrant()
+    wanted = [str(item) for item in headings if str(item).strip()]
+    if not wanted:
+        return []
+    query_filter = Filter(must=[FieldCondition(key="heading", match=MatchAny(any=wanted))])
+    payloads: list[dict] = []
+    offset = None
+    while len(payloads) < limit_per_heading:
+        points, offset = client.scroll(
+            collection_name=EU_TARIC_COLLECTION,
+            limit=min(500, limit_per_heading - len(payloads)),
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+            scroll_filter=query_filter,
+        )
+        payloads.extend(point.payload or {} for point in points)
+        if offset is None:
+            break
+    seen = set()
+    result: list[EUCandidate] = []
+    for payload in payloads:
+        key = str(payload.get("taric10") or payload.get("cn8") or "")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(EUCandidate(
+            cn8=str(payload.get("cn8") or ""),
+            taric10=str(payload.get("taric10") or ""),
+            description=str(payload.get("description") or ""),
+            score=0.0,
+        ))
+    return result

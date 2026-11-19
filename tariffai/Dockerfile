@@ -20,10 +20,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
 COPY scripts/ ./scripts/
+COPY taric_tree.json ./taric_tree.json
 
-# Modelos de traducción locales (OPUS-MT/CTranslate2, ~311 MB).
-# Se descargan en tiempo de build para que el contenedor arranque sin red.
-RUN python scripts/download_translation_models.py
+# Los modelos OPUS-MT se montan desde ./tariffai/models (docker-compose).
+# La descarga se hace en el host con scripts/download_translation_models.py.
 
 EXPOSE 8004
 

@@ -21,9 +21,13 @@ OPERATIVE_PAYLOAD_KEYS = {
 
 
 def to_payload(entry: GoodsEntry) -> dict:
+    code = str(entry.cn8 or entry.taric10 or "")
     return {
         "cn8": entry.cn8,
         "taric10": entry.taric10,
+        "chapter": code[:2] if len(code) >= 2 else "",
+        "heading": code[:4] if len(code) >= 4 else "",
+        "subheading": code[:6] if len(code) >= 6 else "",
         "description": entry.description,
         "language": entry.language,
         "start_date": entry.start_date,
