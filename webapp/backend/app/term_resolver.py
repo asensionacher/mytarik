@@ -7,7 +7,7 @@ import unicodedata
 from pathlib import Path
 
 DB_PATH = Path(os.getenv("TERMBASE_DB", "/app/data/termbase.sqlite"))
-DEFAULT_ATTRS = Path(__file__).resolve().parents[3] / "tariffai" / "code_attributes.json"
+DEFAULT_ATTRS = Path("/app/code_attributes.json")
 ATTRS_PATH = Path(os.getenv("TERM_ATTRIBUTES", str(DEFAULT_ATTRS)))
 for candidate in [Path("/app/tariffai/code_attributes.json"), Path("/app/code_attributes.json")]:
     if candidate.is_file():
