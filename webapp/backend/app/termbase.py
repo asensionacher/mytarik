@@ -16,7 +16,7 @@ def search_terms(query: str, limit: int = 10) -> list[dict]:
     tokens = [t for t in normalized.split() if len(t) > 1][:8]
     if not tokens: return []
     fts_query = " AND ".join(f'"{token}"' for token in tokens)
-    with sqlite3.connect(DB_PATH) as db:
+    with sqlite3.connect(f"file:{DB_PATH}?mode=ro&immutable=1", uri=True) as db:
         db.row_factory = sqlite3.Row
         rows = db.execute("""
             SELECT t.id, t.term, t.normalized, t.source, t.status, t.confidence,
