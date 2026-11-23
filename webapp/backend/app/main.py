@@ -32,6 +32,7 @@ from app.customs_client import (
 )
 from app.invoice_parser import ParsedInvoice, parse_invoice, parse_text
 from app.import_extract import extract_descriptions
+from app.termbase import search_terms
 from app.taric_lookup import ebti_evidence, validate_code
 from app.case_memory import lookup_case, remember_embedding, semantic_lookup, store_case
 from app.question_engine import filter_candidates, next_question
@@ -389,6 +390,11 @@ async def import_validate(payload: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         logger.exception("Fallo validando código TARIC")
         raise HTTPException(502, f"No se pudo validar TARIC: {exc}") from exc
+
+
+@app.get("/api/import/term-search")
+async def import_term_search(q: str, limit: int = 10) -> dict[str, Any]:
+    return {"query": q, "results": search_terms(q, max(1, min(limit, 50)))}
 
 
 @app.post("/api/import/extract")

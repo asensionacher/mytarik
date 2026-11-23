@@ -1,0 +1,7 @@
+[
+  {"term":"memoria RAM","language":"es","synonyms":["RAM","memoria de acceso aleatorio","módulo de memoria","DIMM","SO-DIMM","random access memory"],"codes":[{"code":"8473302000","relation":"commercial_name","context":"módulo ensamblado para ordenador"},{"code":"8542323100","relation":"commercial_name","context":"chip DRAM/SRAM suelto"}]},
+  {"term":"cable USB-C","language":"es","synonyms":["cable USB C","USB-C cable","cable USB"],"codes":[{"code":"8544429050","relation":"commercial_name","context":"cable con conectores"},{"code":"8544499300","relation":"commercial_name","context":"cable sin conectores"}]},
+  {"term":"lona de nylon","language":"es","synonyms":["lona","tarpaulin","toldo"],"codes":[{"code":"6306120000","relation":"commercial_name","context":"lona de fibras sintéticas"},{"code":"6306190000","relation":"commercial_name","context":"lona de otras materias textiles"}]},
+  {"term":"báscula digital","language":"es","synonyms":["báscula","balanza digital","digital scale"],"codes":[{"code":"8423101000","relation":"commercial_name","context":"báscula personal o de hogar"},{"code":"9016000000","relation":"commercial_name","context":"balanza de precisión"}]},
+  {"term":"memoria RAM","language":"es","synonyms":["RAM"],"codes":[{"code":"8473302000","relation":"commercial_name","context":"módulo ensamblado"}]}
+]
