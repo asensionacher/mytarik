@@ -104,6 +104,7 @@ services:
     volumes:
       - ./tariffai/taric_tree.json:/app/taric_tree.json:ro
       - ./data:/app/data:ro
+      - ./tariffai/code_attributes.json:/app/code_attributes.json:ro
     ports:
       - "8005:8000"
     healthcheck:

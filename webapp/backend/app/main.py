@@ -38,6 +38,7 @@ from app.case_memory import lookup_case, remember_embedding, semantic_lookup, st
 from app.question_engine import filter_candidates, next_question
 from app.tree_questions import filter_by_branch, tree_question
 from app.question_engine import special_question
+from app.term_resolver import next_question as next_term_question, filter_candidates as filter_term_candidates
 from app.tariffai_client import (
     ClarificationAnswer,
     HS6LookupResponse,
@@ -277,7 +278,9 @@ async def upload_invoice(
 async def import_filter(payload: dict[str, Any]) -> dict[str, Any]:
     candidates = payload.get("candidates") if isinstance(payload.get("candidates"), list) else []
     attribute = str(payload.get("attribute") or "")
-    if attribute == "tree" and payload.get("option_code"):
+    if attribute.startswith("term:"):
+        filtered = filter_term_candidates(candidates, attribute, str(payload.get("answer") or ""))
+    elif attribute == "tree" and payload.get("option_code"):
         filtered = filter_by_branch(candidates, str(payload.get("option_code")))
     else:
         filtered = filter_candidates(
@@ -334,7 +337,7 @@ async def import_questions(payload: dict[str, Any]) -> dict[str, Any]:
     language = str(payload.get("language") or "es")
     # Stage 1: questions come from the TARIC tree; deterministic rules only
     # remain a fallback when the candidates span separate roots.
-    question = special_question(description, candidates, language) or tree_question(candidates, language) or next_question(description, candidates, language)
+    question = next_term_question(candidates) or special_question(description, candidates, language) or tree_question(candidates, language) or next_question(description, candidates, language)
     return {"question": question}
 
 
@@ -443,6 +446,14 @@ async def classify_single(body: ClassifyBody) -> dict[str, Any]:
     approved_codes = sorted({m["code"] for m in matches if m.get("source") == "seed" and m.get("status") == "approved"})
     payload["termbase_auto_code"] = approved_codes[0] if len(approved_codes) == 1 else None
     payload["termbase_codes"] = approved_codes
+    result = payload.setdefault("result", {})
+    alts = result.setdefault("alternatives", [])
+    existing = {str(a.get("code")) for a in alts}
+    for match in matches:
+        if match.get("source") == "seed" and match.get("status") == "approved" and match.get("code") not in existing:
+            alts.append({"code": match["code"], "description": match.get("description"), "cn8": None, "taric10": match["code"]})
+            existing.add(match["code"])
+    result["alternative_codes"] = alts
     return payload
 
 

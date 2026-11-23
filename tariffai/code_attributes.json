@@ -1,0 +1,42 @@
+{
+  "codes": {
+    "8473302000": {"formato": "modulo", "uso": "ordenador"},
+    "8542323100": {"formato": "chip"},
+    "6306120000": {"material": "sintetica"},
+    "6306190000": {"material": "textil"},
+    "8423101000": {"uso": "personal"},
+    "9016000000": {"uso": "precision"},
+    "8544429050": {"conectores": "con"},
+    "8544499300": {"conectores": "sin"}
+  },
+  "templates": {
+    "formato": {
+      "question": "¿La memoria RAM es un módulo ensamblado (DIMM/SO-DIMM) o un chip DRAM/SRAM suelto?",
+      "options": [
+        {"label": "Módulo ensamblado (DIMM/SO-DIMM)", "value": "modulo"},
+        {"label": "Chip DRAM/SRAM suelto", "value": "chip"}
+      ]
+    },
+    "material": {
+      "question": "¿De qué material está hecha la lona?",
+      "options": [
+        {"label": "Fibras sintéticas (nylon, poliéster)", "value": "sintetica"},
+        {"label": "Otras materias textiles", "value": "textil"}
+      ]
+    },
+    "uso": {
+      "question": "¿Qué uso tiene el aparato de pesaje?",
+      "options": [
+        {"label": "Báscula personal o de hogar", "value": "personal"},
+        {"label": "Balanza de precisión o laboratorio", "value": "precision"}
+      ]
+    },
+    "conectores": {
+      "question": "¿El cable lleva conectores montados?",
+      "options": [
+        {"label": "Sí, lleva conectores", "value": "con"},
+        {"label": "No, es cable sin conectores", "value": "sin"}
+      ]
+    }
+  }
+}
