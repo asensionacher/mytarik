@@ -442,7 +442,9 @@ async def classify_single(body: ClassifyBody) -> dict[str, Any]:
     payload = _serialize([response])[0]
     # Attach commercial-term matches and their EBTI evidence when available.
     matches = search_terms(body.description, 5)
-    payload["termbase_matches"] = matches
+    # Only curated seed terms are shown as authoritative in the live UI.
+    # LLM labels remain available in /api/import/term-search for review.
+    payload["termbase_matches"] = [m for m in matches if m.get("source") == "seed" and m.get("status") == "approved"]
     approved_codes = sorted({m["code"] for m in matches if m.get("source") == "seed" and m.get("status") == "approved"})
     payload["termbase_auto_code"] = approved_codes[0] if len(approved_codes) == 1 else None
     payload["termbase_codes"] = approved_codes

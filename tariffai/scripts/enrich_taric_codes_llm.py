@@ -12,7 +12,7 @@ from pathlib import Path
 def call(url: str, model: str, batch: list[dict]) -> list[dict]:
     prompt = json.dumps([{"code": r["code"], "official": (r["description"] or "")[:1000]} for r in batch], ensure_ascii=False)
     payload = {"model": model, "temperature": 0.1, "max_tokens": 3500, "messages": [
-        {"role": "system", "content": "For each TARIC code, propose ONE short commercial product label (2 to 8 words) that a Spanish importer would use. If the code is generic, residual, 'other', parts or not a standalone product, prefix the label with 'Categoría: '. Return ONLY JSON: [{code, label}]. Do not invent a different legal code."},
+        {"role": "system", "content": "For each TARIC code, propose ONE short commercial product label (2 to 8 words) a Spanish importer would use. Preserve scientific names exactly if present. If the code is generic, residual, 'other', parts, a species you are not sure about, or not a standalone product, prefix the label with 'Categoría: '. Never invent a common species name. Return ONLY JSON: [{code, label}]. Do not invent a different legal code."},
         {"role": "user", "content": prompt},
     ]}
     req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
