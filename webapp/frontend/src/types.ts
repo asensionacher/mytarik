@@ -54,6 +54,17 @@ export interface ClassificationResult {
   clarification_question: { question: string; options: string[] } | null;
   clarification_answers: ClarificationAnswer[];
   needs_human_review: boolean;
+  termbase_matches?: TermbaseMatch[];
+}
+
+export interface TermbaseMatch {
+  term: string;
+  code: string;
+  description?: string | null;
+  source: string;
+  confidence: number;
+  context?: string | null;
+  ebti?: string[];
 }
 
 export interface ClarificationAnswer {

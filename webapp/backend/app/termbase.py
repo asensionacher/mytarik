@@ -26,8 +26,9 @@ def search_terms(query: str, limit: int = 10) -> list[dict]:
             JOIN term_code tc ON tc.term_id = t.id
             LEFT JOIN taric_codes c ON c.code = tc.code
             LEFT JOIN ebti_decisions e ON e.code = tc.code
-            WHERE t.rowid IN (SELECT rowid FROM term_fts WHERE term_fts MATCH ?)
-               OR t.normalized = ?
+            WHERE (t.source != 'ebti_description' OR LENGTH(t.normalized) <= 120)
+              AND (t.rowid IN (SELECT rowid FROM term_fts WHERE term_fts MATCH ?)
+               OR t.normalized = ?)
             GROUP BY t.id, tc.code
             ORDER BY CASE WHEN t.normalized = ? THEN 0 ELSE 1 END, t.confidence DESC, tc.confidence DESC
             LIMIT ?

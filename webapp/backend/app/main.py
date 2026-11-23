@@ -436,7 +436,10 @@ async def classify_single(body: ClassifyBody) -> dict[str, Any]:
     except Exception as exc:
         logger.exception("Fallo llamando a TariffAI")
         raise HTTPException(502, f"TariffAI no respondió: {exc}") from exc
-    return _serialize([response])[0]
+    payload = _serialize([response])[0]
+    # Attach commercial-term matches and their EBTI evidence when available.
+    payload["termbase_matches"] = search_terms(body.description, 5)
+    return payload
 
 
 @app.post("/api/classify/raw", response_model=None)
