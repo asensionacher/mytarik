@@ -43,7 +43,13 @@ def _headings() -> list[dict]:
     return result
 
 
-def hints_from_analysis(analysis: dict, top_k: int = 10) -> list[dict]:
+def hints_from_analysis(analysis: dict, top_k: int = 10, original_text: str = "") -> list[dict]:
+    commercial = _plain(f"{original_text} {analysis.get('english_query', '')} {head if 'head' in locals() else ''}")
+    if any(term in commercial for term in ("memoria ram", "memory ram", "dimm", "so-dimm", "random access memory")):
+        return [
+            {"heading": "8473", "cn8": "", "description": "RAM module / computer part", "strict": True, "score": 10},
+            {"heading": "8542", "cn8": "", "description": "RAM chip / integrated circuit", "strict": True, "score": 10},
+        ]
     head = _plain(str(analysis.get("head_noun_english") or analysis.get("head_noun_source") or ""))
     synonyms = " ".join(str(item) for item in analysis.get("synonyms") or [])
     material = _plain(str(analysis.get("material") or ""))

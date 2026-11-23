@@ -36,6 +36,7 @@ from app.taric_lookup import ebti_evidence, validate_code
 from app.case_memory import lookup_case, remember_embedding, semantic_lookup, store_case
 from app.question_engine import filter_candidates, next_question
 from app.tree_questions import filter_by_branch, tree_question
+from app.question_engine import special_question
 from app.tariffai_client import (
     ClarificationAnswer,
     HS6LookupResponse,
@@ -284,6 +285,18 @@ async def import_filter(payload: dict[str, Any]) -> dict[str, Any]:
             attribute,
             str(payload.get("answer") or ""),
         )
+    # RAM module: the LLM may return only chip candidates; add the current
+    # TARIC module code so the agent can actually select it.
+    if attribute == "ram_format" and str(payload.get("answer") or "").lower().find("módulo") >= 0:
+        code = "8473302000"
+        if not any(str(item.get("code") or "") == code for item in filtered):
+            try:
+                valid = await validate_code(code)
+                if valid.get("valid"):
+                    filtered = [{"code": valid.get("taric10") or valid.get("cn8") or code,
+                                 "description": valid.get("description") or "Electronic assemblies"}] + filtered
+            except Exception:
+                pass
     return {"candidates": filtered}
 
 
@@ -320,7 +333,7 @@ async def import_questions(payload: dict[str, Any]) -> dict[str, Any]:
     language = str(payload.get("language") or "es")
     # Stage 1: questions come from the TARIC tree; deterministic rules only
     # remain a fallback when the candidates span separate roots.
-    question = tree_question(candidates, language) or next_question(description, candidates, language)
+    question = special_question(description, candidates, language) or tree_question(candidates, language) or next_question(description, candidates, language)
     return {"question": question}
 
 

@@ -195,6 +195,14 @@ def filter_candidates(description: str, candidates: list[dict], attribute: str, 
             else:
                 if code.startswith("9603"):
                     out.append({**candidate, "code": code})
+        elif attribute == "ram_format":
+            value_plain = _plain(value)
+            if "modulo" in value_plain or "módulo" in value_plain or "dimm" in value_plain:
+                if code.startswith("8473"):
+                    out.append({**candidate, "code": code})
+            else:
+                if code.startswith(("8542", "8548")):
+                    out.append({**candidate, "code": code})
         elif attribute == "textile_article":
             value_plain = _plain(value)
             if "lona" in value_plain or "toldo" in value_plain or "tarpaulin" in value_plain:
@@ -234,3 +242,16 @@ def filter_candidates(description: str, candidates: list[dict], attribute: str, 
         else:
             out.append({**candidate, "code": code})
     return out
+
+
+def special_question(description: str, candidates: list[dict], language: str = "es") -> dict | None:
+    text = _plain(description)
+    codes = {str(c.get("code") or c.get("taric10") or c.get("cn8") or "") for c in candidates}
+    if any(term in text for term in ("memoria ram", "memory ram", "dimm", "so dimm", "ram")):
+        if any(code.startswith("8473") for code in codes) or any(code.startswith("8542") for code in codes):
+            return {
+                "question": "¿La memoria RAM es un módulo ensamblado (DIMM/SO-DIMM) o un chip DRAM/SRAM suelto?",
+                "options": ["Módulo ensamblado (DIMM/SO-DIMM)", "Chip DRAM/SRAM suelto"],
+                "attribute": "ram_format",
+            }
+    return None

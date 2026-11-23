@@ -12,7 +12,7 @@ import time
 from typing import Any, Iterable, Sequence
 
 from app.cargo_preprocessor import preprocess_cargo_text
-from app.eu_retriever import EUCandidate, retrieve_eu_candidates, retrieve_family_hints
+from app.eu_retriever import EUCandidate, retrieve_eu_candidates, retrieve_family_hints, retrieve_heading_pool
 from app.tree_index import tree_hints
 from app.product_analysis import analyze_product
 from app.tree_subject import hints_from_analysis
@@ -569,7 +569,7 @@ def classify_eu_cargo(
     # constrain the tree. BM25 is only a fallback.
     analysis = analyze_product(cleaned_text, language=language, provider=provider)
     retrieval_text = str(analysis.get("english_query") or query)
-    family_hints = hints_from_analysis(analysis)
+    family_hints = hints_from_analysis(analysis, original_text=cleaned_text)
     if not family_hints:
         family_hints = tree_hints(retrieval_text, original_text=query) or retrieve_family_hints(query)
     family_text = " ".join(
@@ -577,6 +577,11 @@ def classify_eu_cargo(
     ).strip()
     retrieval_query = f"{retrieval_text}\n{family_text}" if family_text else retrieval_text
     candidates = retrieve_eu_candidates(retrieval_query, family_hints=family_hints)
+    # RAM is a commercial term whose TARIC split is module (8473) vs chip (8542).
+    if re.search(r"\b(memoria\s+ram|memory\s+ram|dimm|so-dimm|random\s+access\s+memory|\bram\b)", cleaned_text, re.I):
+        pool = retrieve_heading_pool(["8473", "8542"], limit_per_heading=120)
+        if pool:
+            candidates = pool
     candidates = rerank_candidates(retrieval_text, candidates)
     if not candidates:
         raise EUClassificationError(
