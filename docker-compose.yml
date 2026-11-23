@@ -100,14 +100,10 @@ services:
       TARIFFAI_URL: http://tariffai-api:8004
       TARIFFAI_TIMEOUT: "${TARIFFAI_TIMEOUT:-600}"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
+      TERMBASE_DB: /app/data/termbase.sqlite
     volumes:
       - ./tariffai/taric_tree.json:/app/taric_tree.json:ro
       - ./data:/app/data:ro
-    environment:
-      TARIFFAI_URL: http://tariffai-api:8004
-      TARIFFAI_TIMEOUT: "${TARIFFAI_TIMEOUT:-600}"
-      LOG_LEVEL: "${LOG_LEVEL:-info}"
-      TERMBASE_DB: /app/data/termbase.sqlite
     ports:
       - "8005:8000"
     healthcheck:
