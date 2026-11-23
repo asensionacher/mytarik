@@ -343,5 +343,37 @@
         "context": "término aprobado"
       }
     ]
+  },
+  {
+    "term": "cordones de zapatos",
+    "language": "es",
+    "synonyms": [
+      "cordones",
+      "cordón de zapato",
+      "shoelaces",
+      "shoe laces"
+    ],
+    "codes": [
+      {
+        "code": "6307909899",
+        "relation": "commercial_name",
+        "context": "cordones textiles, no hechos a mano"
+      },
+      {
+        "code": "6307909891",
+        "relation": "commercial_name",
+        "context": "cordones textiles hechos a mano"
+      },
+      {
+        "code": "6307909820",
+        "relation": "commercial_name",
+        "context": "cordones de nonwoven"
+      },
+      {
+        "code": "3926909700",
+        "relation": "commercial_name",
+        "context": "cordones de plástico"
+      }
+    ]
   }
 ]
