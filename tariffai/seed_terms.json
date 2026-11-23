@@ -115,5 +115,233 @@
         "context": "módulo ensamblado para ordenador"
       }
     ]
+  },
+  {
+    "term": "camiseta de algodón",
+    "language": "es",
+    "synonyms": [],
+    "codes": [
+      {
+        "code": "6109100010",
+        "relation": "commercial_name",
+        "context": "término aprobado"
+      }
+    ]
+  },
+  {
+    "term": "zapatillas deportivas",
+    "language": "es",
+    "synonyms": [],
+    "codes": [
+      {
+        "code": "6404110000",
+        "relation": "commercial_name",
+        "context": "término aprobado"
+      }
+    ]
+  },
+  {
+    "term": "mochila",
+    "language": "es",
+    "synonyms": [],
+    "codes": [
+      {
+        "code": "4202929100",
+        "relation": "commercial_name",
+        "context": "término aprobado"
+      }
+    ]
+  },
+  {
+    "term": "auriculares Bluetooth",
+    "language": "es",
+    "synonyms": [],
+    "codes": [
+      {
+        "code": "8518300000",
+        "relation": "commercial_name",
+        "context": "término aprobado"
+      }
+    ]
+  },
+  {
+    "term": "vino tinto",
+    "language": "es",
+    "synonyms": [],
+    "codes": [
+      {
+        "code": "2204210000",
+        "relation": "commercial_name",
+        "context": "término aprobado"
+      }
+    ]
+  },
+  {
+    "term": "café molido",
+    "language": "es",
+    "synonyms": [],
+    "codes": [
+      {
+        "code": "0901210000",
+        "relation": "commercial_name",
+        "context": "término aprobado"
+      }
+    ]
+  },
+  {
+    "term": "juguete de plástico",
+    "language": "es",
+    "synonyms": [],
+    "codes": [
+      {
+        "code": "9503000000",
+        "relation": "commercial_name",
+        "context": "término aprobado"
+      }
+    ]
+  },
+  {
+    "term": "tornillos de titanio",
+    "language": "es",
+    "synonyms": [],
+    "codes": [
+      {
+        "code": "8108909000",
+        "relation": "commercial_name",
+        "context": "término aprobado"
+      }
+    ]
+  },
+  {
+    "term": "motocicleta de gasolina",
+    "language": "es",
+    "synonyms": [],
+    "codes": [
+      {
+        "code": "8711100000",
+        "relation": "commercial_name",
+        "context": "término aprobado"
+      }
+    ]
+  },
+  {
+    "term": "bicicleta",
+    "language": "es",
+    "synonyms": [],
+    "codes": [
+      {
+        "code": "8712000000",
+        "relation": "commercial_name",
+        "context": "término aprobado"
+      }
+    ]
+  },
+  {
+    "term": "bombilla LED",
+    "language": "es",
+    "synonyms": [],
+    "codes": [
+      {
+        "code": "8539520000",
+        "relation": "commercial_name",
+        "context": "término aprobado"
+      }
+    ]
+  },
+  {
+    "term": "reloj de pulsera",
+    "language": "es",
+    "synonyms": [],
+    "codes": [
+      {
+        "code": "9102210000",
+        "relation": "commercial_name",
+        "context": "término aprobado"
+      }
+    ]
+  },
+  {
+    "term": "cargador de portátil",
+    "language": "es",
+    "synonyms": [],
+    "codes": [
+      {
+        "code": "8504409500",
+        "relation": "commercial_name",
+        "context": "término aprobado"
+      }
+    ]
+  },
+  {
+    "term": "tubo de PVC",
+    "language": "es",
+    "synonyms": [],
+    "codes": [
+      {
+        "code": "3917239000",
+        "relation": "commercial_name",
+        "context": "término aprobado"
+      }
+    ]
+  },
+  {
+    "term": "crema solar",
+    "language": "es",
+    "synonyms": [],
+    "codes": [
+      {
+        "code": "3304990000",
+        "relation": "commercial_name",
+        "context": "término aprobado"
+      }
+    ]
+  },
+  {
+    "term": "mesa de madera",
+    "language": "es",
+    "synonyms": [],
+    "codes": [
+      {
+        "code": "9403601000",
+        "relation": "commercial_name",
+        "context": "término aprobado"
+      }
+    ]
+  },
+  {
+    "term": "silla de oficina",
+    "language": "es",
+    "synonyms": [],
+    "codes": [
+      {
+        "code": "9401800000",
+        "relation": "commercial_name",
+        "context": "término aprobado"
+      }
+    ]
+  },
+  {
+    "term": "martillo",
+    "language": "es",
+    "synonyms": [],
+    "codes": [
+      {
+        "code": "8205200000",
+        "relation": "commercial_name",
+        "context": "término aprobado"
+      }
+    ]
+  },
+  {
+    "term": "cable HDMI",
+    "language": "es",
+    "synonyms": [],
+    "codes": [
+      {
+        "code": "8544429000",
+        "relation": "commercial_name",
+        "context": "término aprobado"
+      }
+    ]
   }
 ]
