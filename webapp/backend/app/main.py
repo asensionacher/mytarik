@@ -418,9 +418,50 @@ async def import_extract(file: UploadFile = File(...)) -> dict[str, Any]:
     return {"filename": file.filename or "documento", "count": len(items), "items": items}
 
 
+def _termbase_classification(description: str) -> dict[str, Any] | None:
+    """Resolve a description from approved commercial terms before TariffAI."""
+    matches = search_terms(description, 10)
+    approved = [m for m in matches if m.get("source") == "seed" and m.get("status") == "approved"]
+    if not approved:
+        return None
+    by_code: dict[str, dict] = {}
+    for match in approved:
+        by_code.setdefault(str(match["code"]), match)
+    candidates = [{"code": code, "description": item.get("description")} for code, item in by_code.items()]
+    question = next_term_question(candidates) if len(candidates) > 1 else None
+    codes = sorted(by_code)
+    primary = codes[0] if len(codes) == 1 else None
+    result: dict[str, Any] = {
+        "input_text": description, "cleaned_text": description,
+        "classification_mode": "termbase",
+        "primary_code": primary,
+        "primary_description": by_code[primary].get("description") if primary else None,
+        "cn8": primary[:8] if primary else None, "taric10": primary,
+        "description": by_code[primary].get("description") if primary else None,
+        "alternatives": candidates,
+        "alternative_codes": candidates,
+        "confidence": 0.95 if primary else 0.5,
+        "reasoning": {"heading_reasoning": "Resuelto por término comercial aprobado."},
+        "hierarchy": {},
+        "is_ambiguous": len(codes) > 1,
+        "processing_time_ms": 0, "prompt_tokens": 0, "output_tokens": 0, "total_tokens": 0,
+        "thinking": None, "reasoning_triggers": ["termbase"],
+        "clarification_question": question,
+        "clarification_answers": [],
+        "needs_human_review": len(codes) > 1,
+        "termbase_matches": approved,
+        "termbase_codes": codes,
+        "termbase_auto_code": primary,
+    }
+    return {"status": "classified" if primary else "ambiguous", "result": result, "error": None}
+
+
 @app.post("/api/classify")
 async def classify_single(body: ClassifyBody) -> dict[str, Any]:
     """Clasifica una única descripción (atajo para pruebas)."""
+    resolved = _termbase_classification(body.description)
+    if resolved:
+        return resolved
     try:
         async with make_client() as client:
             clarification = (
@@ -481,24 +522,28 @@ async def classify_raw(body: RawBody, request: Request) -> dict[str, Any] | Stre
             ),
         }
 
-    try:
-        async with make_client() as client:
-            responses = await client.classify_batch(
-                parsed.descriptions,
-                language=body.language,
-                trade=body.trade.model_dump(),
-            )
-    except (httpx.TimeoutException, TimeoutError) as exc:
-        logger.exception("Tiempo de espera agotado clasificando el texto")
-        raise HTTPException(504, "TariffAI superó el tiempo de espera de clasificación") from exc
-    except Exception as exc:
-        logger.exception("Fallo llamando a TariffAI")
-        raise HTTPException(502, f"TariffAI no respondió: {exc}") from exc
-
-    items = [
-        {"description": line, "classification": _serialize([r])[0]}
-        for line, r in zip(parsed.descriptions, responses)
-    ]
+    resolved = [_termbase_classification(line) for line in parsed.descriptions]
+    pending = [line for line, item in zip(parsed.descriptions, resolved) if item is None]
+    responses = []
+    if pending:
+        try:
+            async with make_client() as client:
+                responses = await client.classify_batch(
+                    pending,
+                    language=body.language,
+                    trade=body.trade.model_dump(),
+                )
+        except (httpx.TimeoutException, TimeoutError) as exc:
+            logger.exception("Tiempo de espera agotado clasificando el texto")
+            raise HTTPException(504, "TariffAI superó el tiempo de espera de clasificación") from exc
+        except Exception as exc:
+            logger.exception("Fallo llamando a TariffAI")
+            raise HTTPException(502, f"TariffAI no respondió: {exc}") from exc
+    response_iter = iter(_serialize(responses))
+    items = []
+    for line, item in zip(parsed.descriptions, resolved):
+        classification = item if item is not None else next(response_iter)
+        items.append({"description": line, "classification": classification})
     return {
         "source": "raw",
         "items_count": len(items),
