@@ -438,7 +438,11 @@ async def classify_single(body: ClassifyBody) -> dict[str, Any]:
         raise HTTPException(502, f"TariffAI no respondió: {exc}") from exc
     payload = _serialize([response])[0]
     # Attach commercial-term matches and their EBTI evidence when available.
-    payload["termbase_matches"] = search_terms(body.description, 5)
+    matches = search_terms(body.description, 5)
+    payload["termbase_matches"] = matches
+    approved_codes = sorted({m["code"] for m in matches if m.get("source") == "seed" and m.get("status") == "approved"})
+    payload["termbase_auto_code"] = approved_codes[0] if len(approved_codes) == 1 else None
+    payload["termbase_codes"] = approved_codes
     return payload
 
 

@@ -79,7 +79,8 @@ export default function ImportApp() {
           return { description, classification: { status: "classified", result: synthetic, error: null }, asked: 0, askedQuestions: [], selected: hit.code, memory: { confirmations: hit.confirmations, code: hit.code } } as ItemState;
         }
         const item = response!.items[missIndex++];
-        return { ...item, description, asked: 0, askedQuestions: [] } as ItemState;
+        const autoCode = item.classification.result?.termbase_auto_code ?? null;
+        return { ...item, description, asked: 0, askedQuestions: [], selected: autoCode } as ItemState;
       });
       setItems(next);
       loadTranslations(next);

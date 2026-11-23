@@ -55,6 +55,8 @@ export interface ClassificationResult {
   clarification_answers: ClarificationAnswer[];
   needs_human_review: boolean;
   termbase_matches?: TermbaseMatch[];
+  termbase_auto_code?: string | null;
+  termbase_codes?: string[];
 }
 
 export interface TermbaseMatch {
