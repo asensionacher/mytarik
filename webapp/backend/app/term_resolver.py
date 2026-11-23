@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sqlite3
 import unicodedata
 from pathlib import Path
 
@@ -22,6 +23,20 @@ def _normalize(text: str) -> str:
 
 
 def _load_attrs() -> dict:
+    # Prefer the SQLite tables; keep JSON as a development fallback.
+    if DB_PATH.is_file():
+        try:
+            with sqlite3.connect(f"file:{DB_PATH}?mode=ro&immutable=1", uri=True) as db:
+                codes: dict[str, dict[str, str]] = {}
+                for code, attribute, value in db.execute("SELECT code, attribute, value FROM code_attributes"):
+                    codes.setdefault(code, {})[attribute] = value
+                templates: dict[str, dict] = {}
+                for attribute, question, options in db.execute("SELECT attribute, question, options_json FROM question_templates"):
+                    templates[attribute] = {"question": question, "options": json.loads(options)}
+                if codes or templates:
+                    return {"codes": codes, "templates": templates}
+        except Exception:
+            pass
     if not ATTRS_PATH.is_file():
         return {"codes": {}, "templates": {}}
     return json.loads(ATTRS_PATH.read_text(encoding="utf-8"))
