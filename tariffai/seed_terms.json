@@ -375,5 +375,21 @@
         "context": "cordones de plástico"
       }
     ]
+  },
+  {
+    "term": "altavoz Bluetooth",
+    "language": "es",
+    "synonyms": [
+      "altavoz",
+      "speaker Bluetooth",
+      "parlante Bluetooth"
+    ],
+    "codes": [
+      {
+        "code": "8518220000",
+        "relation": "commercial_name",
+        "context": "altavoces múltiples montados en la misma envolvente"
+      }
+    ]
   }
 ]
